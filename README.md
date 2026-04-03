@@ -38,6 +38,14 @@ The Abilities API is a WordPress feature (6.9+) that lets components register st
 
 The ability is unregistered at runtime and the disabled state is stored in the database. It will not appear in ability listings for integrations until you enable it again.
 
+### Why might I still see a button or control for a disabled ability?
+
+Abilities Audit only controls **whether the ability is registered** on the site. Each integration (another plugin, the block editor, an AI feature, and so on) decides **whether to show its own UI** using its own rules: feature toggles, user capabilities, `permission_callback` behavior, and other checks. Those layers are not governed by this plugin.
+
+**The ability itself is still blocked** when disabled here: attempts to run it via the Abilities REST API (or any path that requires a registered ability) will fail—for example with a `404` and `rest_ability_not_found`. If a control still appears, that is a limitation of the integration’s UI, not a sign that the ability remains available.
+
+**Recommendation for integrators:** any interface that invokes an ability should also **check that the ability is registered** (for example via `wp_has_ability()` on the server or the equivalent in the block editor / REST) **in addition to** feature flags, user capabilities, and `permission_callback` rules. That way, when an ability is disabled here—or unregistered for any other reason—controls can hide instead of surfacing a dead end.
+
 ### Where is the audit screen?
 
 **Tools → Abilities Audit** in the WordPress admin.
