@@ -1,0 +1,28 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependencies
+/vendor/
+node_modules/
+
+# IDE / editors
+.idea/
+*.swp
+*.swo
+*~
+
+# PHP tooling
+.phpunit.result.cache
+.php-cs-fixer.cache

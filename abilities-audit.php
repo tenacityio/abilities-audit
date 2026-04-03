@@ -1,0 +1,549 @@
+<?php
+/**
+ * Plugin Name: Abilities Audit
+ * Plugin URI:  https://github.com/tenacityio/abilities-audit
+ * Description: Audit and governance dashboard for the WordPress Abilities API. View, inspect, and toggle registered abilities from a single admin screen.
+ * Version:     0.1.0
+ * Requires at least: 6.9
+ * Tested up to: 6.9
+ * Requires PHP: 7.4
+ * Author:      Tenacity
+ * Author URI:  https://tenacity.io
+ * License:     GPL-2.0-or-later
+ * License URI: https://www.gnu.org/licenses/gpl-2.0.html
+ * Text Domain: abilities-audit
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+define( 'ABILITIES_AUDIT_VERSION', '0.1.0' );
+
+/**
+ * Main plugin class.
+ *
+ * Uses a singleton so the abilities snapshot captured during init
+ * is available later when the admin page renders.
+ */
+final class Abilities_Audit {
+
+	/** Option key for the list of disabled ability names. */
+	const OPTION_DISABLED = 'abilities_audit_disabled';
+
+	/** Required capability to access the admin page and toggle abilities. */
+	const CAPABILITY = 'manage_options';
+
+	/** @var self|null */
+	private static $instance = null;
+
+	/** @var array Snapshot of all WP_Ability objects captured before filtering. Keyed by ability name. */
+	private $abilities_snapshot = array();
+
+	/** @var string[] List of currently disabled ability names. */
+	private $disabled = array();
+
+	/** @var string Admin screen hook suffix for Tools > Abilities Audit. */
+	private $admin_page_hook = '';
+
+	/** @var bool Whether capture_and_filter() has successfully run. */
+	private $snapshot_captured = false;
+
+	/**
+	 * Get or create the singleton instance.
+	 *
+	 * @return self
+	 */
+	public static function get_instance() {
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+		return self::$instance;
+	}
+
+	/**
+	 * Prevent cloning.
+	 */
+	private function __clone() {}
+
+	/**
+	 * Prevent unserialization.
+	 *
+	 * @throws \Exception When unserialization is attempted.
+	 */
+	public function __wakeup() {
+		throw new \Exception( 'Cannot unserialize singleton' );
+	}
+
+	/**
+	 * Wire up hooks.
+	 */
+	private function __construct() {
+		$this->disabled = get_option( self::OPTION_DISABLED, array() );
+
+		if ( ! is_array( $this->disabled ) ) {
+			$this->disabled = array();
+		}
+
+		add_action( 'init', array( $this, 'load_textdomain' ) );
+
+		// Capture all abilities at late priority, then unregister disabled ones.
+		add_action( 'wp_abilities_api_init', array( $this, 'capture_and_filter' ), 999 );
+
+		// Fallback: ensure snapshot + disable filter runs even if wp_abilities_api_init
+		// fired before abilities were registered (or didn't fire at all).
+		add_action( 'wp_loaded', array( $this, 'ensure_capture' ) );
+
+		// Admin page under Tools.
+		add_action( 'admin_menu', array( $this, 'register_admin_page' ) );
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
+
+		// AJAX handler for toggling.
+		add_action( 'wp_ajax_abilities_audit_toggle', array( $this, 'ajax_toggle' ) );
+	}
+
+	/**
+	 * Load plugin text domain.
+	 */
+	public function load_textdomain() {
+		load_plugin_textdomain( 'abilities-audit', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+	}
+
+	/**
+	 * Enqueue admin styles and scripts on the Abilities Audit screen only.
+	 *
+	 * @param string $hook_suffix Current admin screen hook suffix.
+	 */
+	public function enqueue_admin_assets( $hook_suffix ) {
+		if ( $hook_suffix !== $this->admin_page_hook ) {
+			return;
+		}
+
+		wp_enqueue_style(
+			'abilities-audit-admin',
+			plugins_url( 'assets/css/admin.css', __FILE__ ),
+			array(),
+			ABILITIES_AUDIT_VERSION
+		);
+
+		wp_enqueue_script(
+			'abilities-audit-admin',
+			plugins_url( 'assets/js/admin.js', __FILE__ ),
+			array(),
+			ABILITIES_AUDIT_VERSION,
+			true
+		);
+
+		wp_localize_script(
+			'abilities-audit-admin',
+			'abilitiesAuditAdmin',
+			array(
+				'ajaxurl'         => admin_url( 'admin-ajax.php' ),
+				'summaryTemplate' => __( '%1$d abilities registered. %2$d enabled, %3$d disabled.', 'abilities-audit' ),
+				'i18n'            => array(
+					'hide'        => __( 'Hide', 'abilities-audit' ),
+					'view'        => __( 'View', 'abilities-audit' ),
+					'error'       => __( 'Error', 'abilities-audit' ),
+					'on'          => __( 'On', 'abilities-audit' ),
+					'off'         => __( 'Off', 'abilities-audit' ),
+					'enableAria'  => __( 'Enable %s', 'abilities-audit' ),
+					'disableAria' => __( 'Disable %s', 'abilities-audit' ),
+				),
+			)
+		);
+	}
+
+	// ------------------------------------------------------------------
+	//  Capture and filter abilities
+	// ------------------------------------------------------------------
+
+	/**
+	 * Runs at priority 999 on wp_abilities_api_init.
+	 *
+	 * 1. Snapshot every registered ability (including ones we are about to disable).
+	 * 2. Unregister any abilities the admin has toggled off (wp_has_ability guards each call).
+	 *
+	 * The snapshot is copied into a new array before unregistering. The registry may mutate the
+	 * array returned by wp_get_abilities(); without a copy, disabled rows would disappear from the audit UI.
+	 *
+	 * The disabled list is only persisted via ajax_toggle(); this method does not write the option.
+	 * Stale names in the option are harmless: wp_has_ability is false when an ability no longer exists.
+	 *
+	 * This method is a no-op if it has already run in the same request (see snapshot_captured),
+	 * so a second pass cannot overwrite the snapshot after unregistering.
+	 */
+	public function capture_and_filter() {
+		// Run once per request: a second pass would re-snapshot after unregistering.
+		if ( $this->snapshot_captured ) {
+			return;
+		}
+
+		if ( ! function_exists( 'wp_get_abilities' ) ) {
+			return;
+		}
+
+		$registry = wp_get_abilities();
+		if ( ! is_array( $registry ) ) {
+			$registry = array();
+		}
+		// Shallow copy so wp_unregister_ability() cannot remove keys from our admin snapshot.
+		$this->abilities_snapshot = array();
+		foreach ( $registry as $name => $ability ) {
+			$this->abilities_snapshot[ $name ] = $ability;
+		}
+
+		foreach ( $this->disabled as $name ) {
+			if ( function_exists( 'wp_unregister_ability' ) && wp_has_ability( $name ) ) {
+				wp_unregister_ability( $name );
+			}
+		}
+
+		// Mark complete when we have data, or after wp_loaded so ensure_capture() does not loop on empty sites.
+		$this->snapshot_captured = ! empty( $this->abilities_snapshot ) || did_action( 'wp_loaded' );
+	}
+
+	/**
+	 * Runs on wp_loaded if capture_and_filter() did not run earlier (e.g. wp_abilities_api_init
+	 * did not fire or fired before abilities were registered).
+	 */
+	public function ensure_capture() {
+		if ( $this->snapshot_captured || ! function_exists( 'wp_get_abilities' ) ) {
+			return;
+		}
+
+		// wp_abilities_api_init either didn't fire or fired with an empty registry.
+		// Capture now — we are past all init-phase ability registrations.
+		$this->capture_and_filter();
+	}
+
+	// ------------------------------------------------------------------
+	//  Source detection
+	// ------------------------------------------------------------------
+
+	/**
+	 * Best-effort detection of which component registered an ability.
+	 *
+	 * Strategy:
+	 * 1. Parse the namespace (text before the first slash).
+	 * 2. Match against known core namespace patterns.
+	 * 3. Match against active plugin slugs.
+	 * 4. Match against the active theme stylesheet slug.
+	 * 5. Fall back to "Unknown" with the raw namespace shown.
+	 *
+	 * @param  string $ability_name Full ability name (namespace/ability-name).
+	 * @return array{type: string, label: string}
+	 */
+	private function detect_source( $ability_name ) {
+		$parts     = explode( '/', $ability_name, 2 );
+		$namespace = $parts[0];
+
+		// Core.
+		$core_namespaces = array( 'core', 'wordpress', 'wp' );
+		if ( in_array( $namespace, $core_namespaces, true ) ) {
+			return array(
+				'type'  => 'core',
+				'label' => __( 'WordPress Core', 'abilities-audit' ),
+			);
+		}
+
+		// Active plugins.
+		if ( ! function_exists( 'get_plugins' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+		$plugins = get_plugins();
+		foreach ( $plugins as $plugin_file => $plugin_data ) {
+			$slug = dirname( $plugin_file );
+			if ( '.' === $slug ) {
+				$slug = basename( $plugin_file, '.php' );
+			}
+			if ( $slug === $namespace ) {
+				$active = is_plugin_active( $plugin_file );
+				return array(
+					'type'  => 'plugin',
+					'label' => $plugin_data['Name'] . ( $active ? '' : ' ' . __( '(inactive)', 'abilities-audit' ) ),
+				);
+			}
+		}
+
+		// Active theme.
+		$theme = wp_get_theme();
+		if ( $theme->get_stylesheet() === $namespace || $theme->get_template() === $namespace ) {
+			return array(
+				'type'  => 'theme',
+				'label' => $theme->get( 'Name' ),
+			);
+		}
+
+		// Must-use plugins (best-effort slug match).
+		$mu_plugins = get_mu_plugins();
+		foreach ( $mu_plugins as $mu_file => $mu_data ) {
+			$slug = basename( $mu_file, '.php' );
+			if ( $slug === $namespace ) {
+				return array(
+					'type'  => 'mu-plugin',
+					'label' => $mu_data['Name'],
+				);
+			}
+		}
+
+		return array(
+			'type'  => 'unknown',
+			'label' => sprintf( __( 'Unknown (%s)', 'abilities-audit' ), esc_html( $namespace ) ),
+		);
+	}
+
+	// ------------------------------------------------------------------
+	//  Admin page
+	// ------------------------------------------------------------------
+
+	/**
+	 * Register the admin page under Tools.
+	 */
+	public function register_admin_page() {
+		$this->admin_page_hook = add_management_page(
+			__( 'Abilities Audit', 'abilities-audit' ),
+			__( 'Abilities Audit', 'abilities-audit' ),
+			self::CAPABILITY,
+			'abilities-audit',
+			array( $this, 'render_admin_page' )
+		);
+	}
+
+	/**
+	 * Render the admin page.
+	 */
+	public function render_admin_page() {
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_die( __( 'You do not have permission to access this page.', 'abilities-audit' ) );
+		}
+
+		$abilities = $this->abilities_snapshot;
+		$disabled  = get_option( self::OPTION_DISABLED, array() );
+		if ( ! is_array( $disabled ) ) {
+			$disabled = array();
+		}
+
+		// Last-resort fallback: snapshot still empty at render time (e.g. very early page load).
+		if ( empty( $abilities ) && function_exists( 'wp_get_abilities' ) ) {
+			$registry = wp_get_abilities();
+			if ( is_array( $registry ) ) {
+				foreach ( $registry as $name => $ability ) {
+					$abilities[ $name ] = $ability;
+				}
+			}
+		}
+
+		// Ensure disabled-but-unregistered abilities still appear (orphans after edge cases).
+		foreach ( $disabled as $name ) {
+			if ( ! isset( $abilities[ $name ] ) ) {
+				$abilities[ $name ] = null;
+			}
+		}
+
+		// Sort alphabetically by name.
+		ksort( $abilities );
+
+		$abilities_api_available = function_exists( 'wp_get_abilities' );
+
+		?>
+		<div class="wrap">
+			<h1><?php esc_html_e( 'Abilities Audit', 'abilities-audit' ); ?></h1>
+			<p><?php esc_html_e( 'All abilities registered on this site via the Abilities API. Disabled abilities are unregistered at runtime and will not appear in the REST API or be available to AI agents.', 'abilities-audit' ); ?></p>
+
+			<?php if ( ! $abilities_api_available ) : ?>
+				<div class="notice notice-error inline">
+					<p><?php esc_html_e( 'The WordPress Abilities API is not available on this site. Abilities Audit requires WordPress 6.9 or later.', 'abilities-audit' ); ?></p>
+				</div>
+			<?php endif; ?>
+
+			<?php if ( empty( $abilities ) ) : ?>
+				<div class="notice notice-warning inline">
+					<p><?php esc_html_e( 'No abilities are currently registered. Make sure you are running WordPress 6.9 or later and that at least one component has registered abilities.', 'abilities-audit' ); ?></p>
+				</div>
+			<?php else : ?>
+				<table class="wp-list-table widefat fixed striped" id="abilities-audit-table">
+					<thead>
+						<tr>
+							<th class="column-status" style="width:80px;"><?php esc_html_e( 'Status', 'abilities-audit' ); ?></th>
+							<th class="column-name" style="width:220px;"><?php esc_html_e( 'Name', 'abilities-audit' ); ?></th>
+							<th class="column-label" style="width:180px;"><?php esc_html_e( 'Label', 'abilities-audit' ); ?></th>
+							<th class="column-source" style="width:160px;"><?php esc_html_e( 'Source', 'abilities-audit' ); ?></th>
+							<th class="column-description"><?php esc_html_e( 'Description', 'abilities-audit' ); ?></th>
+							<th class="column-schema" style="width:100px;"><?php esc_html_e( 'Schema', 'abilities-audit' ); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( $abilities as $name => $ability ) :
+							$is_disabled = in_array( $name, $disabled, true );
+							$source      = $this->detect_source( $name );
+							if ( $ability instanceof \WP_Ability ) {
+								$label       = $ability->get_label();
+								$description = $ability->get_description();
+
+								$input_schema  = $ability->get_input_schema();
+								$output_schema = $ability->get_output_schema();
+								$annotations   = method_exists( $ability, 'get_annotations' ) ? $ability->get_annotations() : array();
+							} else {
+								$label       = $name;
+								$description = __( 'This ability is disabled and not registered in this request. Turn it on to restore it.', 'abilities-audit' );
+								$input_schema  = array();
+								$output_schema = array();
+								$annotations   = array();
+							}
+
+							$source_badge_class = 'abilities-audit-badge abilities-audit-badge--' . esc_attr( $source['type'] );
+							?>
+							<tr class="<?php echo $is_disabled ? 'abilities-audit-row--disabled' : ''; ?>">
+								<td class="column-status">
+									<button
+										type="button"
+										class="abilities-audit-toggle button <?php echo $is_disabled ? 'button-secondary' : 'button-primary'; ?>"
+										data-ability="<?php echo esc_attr( $name ); ?>"
+										data-nonce="<?php echo esc_attr( wp_create_nonce( 'abilities_audit_toggle_' . $name ) ); ?>"
+										aria-label="<?php echo $is_disabled
+											? esc_attr( sprintf( __( 'Enable %s', 'abilities-audit' ), $name ) )
+											: esc_attr( sprintf( __( 'Disable %s', 'abilities-audit' ), $name ) ); ?>"
+									>
+										<?php echo $is_disabled
+											? esc_html__( 'Off', 'abilities-audit' )
+											: esc_html__( 'On', 'abilities-audit' ); ?>
+									</button>
+								</td>
+								<td class="column-name">
+									<code><?php echo esc_html( $name ); ?></code>
+								</td>
+								<td class="column-label">
+									<?php echo esc_html( $label ); ?>
+								</td>
+								<td class="column-source">
+									<span class="<?php echo esc_attr( $source_badge_class ); ?>">
+										<?php echo esc_html( $source['label'] ); ?>
+									</span>
+								</td>
+								<td class="column-description">
+									<?php echo esc_html( $description ); ?>
+								</td>
+								<td class="column-schema">
+									<?php if ( ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations ) ) : ?>
+										<button type="button" class="button button-small abilities-audit-schema-toggle" data-target="schema-<?php echo esc_attr( sanitize_title( $name ) ); ?>">
+											<?php esc_html_e( 'View', 'abilities-audit' ); ?>
+										</button>
+									<?php else : ?>
+										<span class="description">&mdash;</span>
+									<?php endif; ?>
+								</td>
+							</tr>
+							<?php if ( ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations ) ) : ?>
+								<tr class="abilities-audit-schema-row" id="schema-<?php echo esc_attr( sanitize_title( $name ) ); ?>" style="display:none;">
+									<td colspan="6" style="padding:12px 20px;background:#f9f9f9;">
+										<?php if ( ! empty( $annotations ) ) : ?>
+											<div class="abilities-audit-schema-section">
+												<strong><?php esc_html_e( 'Annotations', 'abilities-audit' ); ?></strong>
+												<pre style="margin:4px 0 12px;white-space:pre-wrap;"><?php echo esc_html( wp_json_encode( $annotations, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) ); ?></pre>
+											</div>
+										<?php endif; ?>
+										<?php if ( ! empty( $input_schema ) ) : ?>
+											<div class="abilities-audit-schema-section">
+												<strong><?php esc_html_e( 'Input Schema', 'abilities-audit' ); ?></strong>
+												<pre style="margin:4px 0 12px;white-space:pre-wrap;"><?php echo esc_html( wp_json_encode( $input_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) ); ?></pre>
+											</div>
+										<?php endif; ?>
+										<?php if ( ! empty( $output_schema ) ) : ?>
+											<div class="abilities-audit-schema-section">
+												<strong><?php esc_html_e( 'Output Schema', 'abilities-audit' ); ?></strong>
+												<pre style="margin:4px 0 12px;white-space:pre-wrap;"><?php echo esc_html( wp_json_encode( $output_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) ); ?></pre>
+											</div>
+										<?php endif; ?>
+									</td>
+								</tr>
+							<?php endif; ?>
+						<?php endforeach; ?>
+					</tbody>
+					<?php
+					$total = count( $abilities );
+					$off   = count( array_intersect( $disabled, array_keys( $abilities ) ) );
+					$on    = $total - $off;
+					?>
+					<tfoot>
+						<tr>
+							<th
+								colspan="6"
+								id="abilities-audit-summary"
+								data-total="<?php echo esc_attr( (string) $total ); ?>"
+								data-on="<?php echo esc_attr( (string) $on ); ?>"
+								data-off="<?php echo esc_attr( (string) $off ); ?>"
+							>
+								<?php
+								printf(
+									/* translators: 1: total count, 2: enabled count, 3: disabled count */
+									esc_html__( '%1$d abilities registered. %2$d enabled, %3$d disabled.', 'abilities-audit' ),
+									$total,
+									$on,
+									$off
+								);
+								?>
+							</th>
+						</tr>
+					</tfoot>
+				</table>
+			<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	// ------------------------------------------------------------------
+	//  AJAX toggle handler
+	// ------------------------------------------------------------------
+
+	/**
+	 * Handle the AJAX request to enable or disable an ability.
+	 */
+	public function ajax_toggle() {
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'abilities-audit' ) ) );
+		}
+
+		$ability = isset( $_POST['ability'] ) ? sanitize_text_field( wp_unslash( $_POST['ability'] ) ) : '';
+
+		if ( empty( $ability ) ) {
+			wp_send_json_error( array( 'message' => __( 'Missing ability name.', 'abilities-audit' ) ) );
+		}
+
+		check_ajax_referer( 'abilities_audit_toggle_' . $ability );
+
+		$disabled = get_option( self::OPTION_DISABLED, array() );
+		if ( ! is_array( $disabled ) ) {
+			$disabled = array();
+		}
+
+		$is_currently_disabled = in_array( $ability, $disabled, true );
+
+		if ( $is_currently_disabled ) {
+			// Re-enable: remove from disabled list.
+			$disabled  = array_values( array_diff( $disabled, array( $ability ) ) );
+			$new_state = 'enabled';
+		} else {
+			// Disable: add to disabled list.
+			$disabled[] = $ability;
+			$disabled     = array_values( array_unique( $disabled ) );
+			$new_state    = 'disabled';
+		}
+
+		update_option( self::OPTION_DISABLED, $disabled, true );
+
+		wp_send_json_success(
+			array(
+				'ability' => $ability,
+				'state'   => $new_state,
+			)
+		);
+	}
+}
+
+/**
+ * Bootstrap the plugin.
+ *
+ * Runs on plugins_loaded so the Abilities API functions are guaranteed
+ * to be available before we try to hook into them.
+ */
+add_action( 'plugins_loaded', array( 'Abilities_Audit', 'get_instance' ) );

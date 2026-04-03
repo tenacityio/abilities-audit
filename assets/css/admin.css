@@ -1,0 +1,65 @@
+#abilities-audit-table .column-name code {
+	font-size: 12px;
+	background: #f0f0f0;
+	padding: 2px 6px;
+	border-radius: 3px;
+}
+
+.abilities-audit-row--disabled {
+	opacity: 0.6;
+}
+
+.abilities-audit-toggle {
+	min-width: 50px;
+	text-align: center;
+}
+
+.abilities-audit-badge {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+.abilities-audit-badge--core {
+	background: #d1ecf1;
+	color: #0c5460;
+}
+
+.abilities-audit-badge--plugin {
+	background: #d4edda;
+	color: #155724;
+}
+
+.abilities-audit-badge--theme {
+	background: #e2d5f1;
+	color: #432874;
+}
+
+.abilities-audit-badge--mu-plugin {
+	background: #fff3cd;
+	color: #856404;
+}
+
+.abilities-audit-badge--unknown {
+	background: #f0f0f0;
+	color: #555;
+}
+
+.abilities-audit-schema-row pre {
+	background: #fff;
+	border: 1px solid #ddd;
+	padding: 10px;
+	max-height: 300px;
+	overflow: auto;
+	font-size: 12px;
+}
+
+.abilities-audit-schema-section {
+	margin-bottom: 8px;
+}
+
+.abilities-audit-schema-section:last-child {
+	margin-bottom: 0;
+}
