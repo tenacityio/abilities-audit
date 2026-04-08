@@ -11,6 +11,9 @@
 	var onLabel = i18n.on || 'On';
 	var offLabel = i18n.off || 'Off';
 	var summaryTpl = cfg.summaryTemplate || '';
+	var schemaAnnotationsLabel = i18n.schemaAnnotations || 'Annotations';
+	var schemaInputLabel = i18n.schemaInput || 'Input Schema';
+	var schemaOutputLabel = i18n.schemaOutput || 'Output Schema';
 
 	function ariaForState(state, abilityName) {
 		var tpl =
@@ -46,18 +49,145 @@
 			.replace('%3$d', String(off));
 	}
 
-	// Schema expand / collapse.
-	document.querySelectorAll('.abilities-audit-schema-toggle').forEach(function (btn) {
-		btn.addEventListener('click', function () {
-			var targetId = this.getAttribute('data-target');
+	function isNonEmptySchemaValue(val) {
+		if (val === null || val === undefined) {
+			return false;
+		}
+		if (Array.isArray(val)) {
+			return val.length > 0;
+		}
+		if (typeof val === 'object') {
+			return Object.keys(val).length > 0;
+		}
+		return true;
+	}
+
+	function appendSchemaSection(container, title, data) {
+		if (!isNonEmptySchemaValue(data)) {
+			return;
+		}
+		var section = document.createElement('div');
+		section.className = 'abilities-audit-schema-section';
+		var strong = document.createElement('strong');
+		strong.textContent = title;
+		var pre = document.createElement('pre');
+		pre.style.margin = '4px 0 12px';
+		pre.style.whiteSpace = 'pre-wrap';
+		pre.textContent = JSON.stringify(data, null, 2);
+		section.appendChild(strong);
+		section.appendChild(pre);
+		container.appendChild(section);
+	}
+
+	function fillSchemaDetailCell(td, schema) {
+		td.textContent = '';
+		appendSchemaSection(td, schemaAnnotationsLabel, schema.annotations);
+		appendSchemaSection(td, schemaInputLabel, schema.input_schema);
+		appendSchemaSection(td, schemaOutputLabel, schema.output_schema);
+	}
+
+	function getSchemaRow(mainRow, schemaTargetId) {
+		var id = 'schema-' + schemaTargetId;
+		var el = document.getElementById(id);
+		if (el && el.classList.contains('abilities-audit-schema-row')) {
+			return el;
+		}
+		var next = mainRow.nextElementSibling;
+		if (
+			next &&
+			next.classList.contains('abilities-audit-schema-row') &&
+			next.id === id
+		) {
+			return next;
+		}
+		return null;
+	}
+
+	function ensureSchemaRow(mainRow, schemaTargetId) {
+		var existing = getSchemaRow(mainRow, schemaTargetId);
+		if (existing) {
+			return existing;
+		}
+		var tr = document.createElement('tr');
+		tr.className = 'abilities-audit-schema-row';
+		tr.id = 'schema-' + schemaTargetId;
+		tr.style.display = 'none';
+		var td = document.createElement('td');
+		td.colSpan = 6;
+		td.style.padding = '12px 20px';
+		td.style.background = '#f9f9f9';
+		tr.appendChild(td);
+		if (mainRow.parentNode) {
+			mainRow.parentNode.insertBefore(tr, mainRow.nextSibling);
+		}
+		return tr;
+	}
+
+	function updateRowFromToggleResponse(mainRow, payload) {
+		if (!mainRow || !payload) {
+			return;
+		}
+		var descCell = mainRow.querySelector('.column-description');
+		if (descCell && typeof payload.description === 'string') {
+			descCell.textContent = payload.description;
+		}
+		var schemaCell = mainRow.querySelector('.column-schema');
+		if (!schemaCell) {
+			return;
+		}
+		var schemaTargetId = payload.schema_target_id || '';
+		var hasSchema = !!payload.has_schema;
+		var schema = payload.schema || {};
+
+		if (!hasSchema) {
+			schemaCell.innerHTML =
+				'<span class="description">&mdash;</span>';
+			var detailHidden = getSchemaRow(mainRow, schemaTargetId);
+			if (detailHidden) {
+				detailHidden.style.display = 'none';
+			}
+			return;
+		}
+
+		var targetAttr = 'schema-' + schemaTargetId;
+		var viewBtn = document.createElement('button');
+		viewBtn.type = 'button';
+		viewBtn.className =
+			'button button-small abilities-audit-schema-toggle';
+		viewBtn.setAttribute('data-target', targetAttr);
+		viewBtn.textContent = viewLabel;
+		schemaCell.textContent = '';
+		schemaCell.appendChild(viewBtn);
+
+		var detailRow = ensureSchemaRow(mainRow, schemaTargetId);
+		var td = detailRow.querySelector('td');
+		if (td) {
+			fillSchemaDetailCell(td, {
+				annotations: schema.annotations,
+				input_schema: schema.input_schema,
+				output_schema: schema.output_schema,
+			});
+		}
+		detailRow.style.display = 'none';
+	}
+
+	// Schema expand / collapse (delegated so dynamically added View buttons work).
+	var tbody = document.querySelector('#abilities-audit-table tbody');
+	if (tbody) {
+		tbody.addEventListener('click', function (e) {
+			var btn = e.target.closest('.abilities-audit-schema-toggle');
+			if (!btn) {
+				return;
+			}
+			var targetId = btn.getAttribute('data-target');
 			var target = targetId ? document.getElementById(targetId) : null;
 			if (target) {
 				var isHidden = target.style.display === 'none';
 				target.style.display = isHidden ? 'table-row' : 'none';
-				this.textContent = isHidden ? hideLabel : viewLabel;
+				btn.textContent = isHidden ? hideLabel : viewLabel;
 			}
 		});
-	});
+	}
 
 	// AJAX toggle (in-place UI; no full page reload).
 	document.querySelectorAll('.abilities-audit-toggle').forEach(function (btn) {
@@ -97,6 +227,9 @@
 								}
 							}
 							updateSummaryFooter(state);
+							if (row) {
+								updateRowFromToggleResponse(row, response.data);
+							}
 							button.disabled = false;
 							return;
 						}
