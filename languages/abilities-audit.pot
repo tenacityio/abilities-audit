@@ -32,7 +32,19 @@ msgid "(inactive)"
 msgstr ""
 
 #: abilities-audit.php
-msgid "Unknown (%s)"
+msgid "Core"
+msgstr ""
+
+#: abilities-audit.php
+msgid "Core (%s)"
+msgstr ""
+
+#: abilities-audit.php
+msgid "Plugin (%s)"
+msgstr ""
+
+#: abilities-audit.php
+msgid "Theme (%s)"
 msgstr ""
 
 #: abilities-audit.php

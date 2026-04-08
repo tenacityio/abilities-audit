@@ -221,32 +221,35 @@ final class Abilities_Audit {
 	// ------------------------------------------------------------------
 
 	/**
-	 * Best-effort detection of which component registered an ability.
+	 * Detect which "provider" an ability comes from (Core, Plugin, Theme).
 	 *
 	 * Strategy:
-	 * 1. Parse the namespace (text before the first slash).
-	 * 2. Match against known core namespace patterns.
-	 * 3. Match against active plugin slugs.
-	 * 4. Match against the active theme stylesheet slug.
-	 * 5. Fall back to "Unknown" with the raw namespace shown.
+	 * 1. If the ability explicitly sets a provider in its meta, use that.
+	 * 2. Parse the namespace (text before the first slash).
+	 * 3. If namespace matches known core prefixes, mark as Core.
+	 * 4. If namespace matches the active theme, mark as Theme.
+	 * 5. Otherwise, default to Plugin.
 	 *
 	 * @param  string $ability_name Full ability name (namespace/ability-name).
+	 * @param  array<string,mixed> $meta Optional. Ability meta, if available.
 	 * @return array{type: string, label: string}
 	 */
-	private function detect_source( $ability_name ) {
+	private function detect_source( $ability_name, $meta = array() ) {
 		$parts     = explode( '/', $ability_name, 2 );
 		$namespace = $parts[0];
+		$core_namespaces = array( 'wordpress', 'wp', 'core' );
 
-		// Core.
-		$core_namespaces = array( 'core', 'wordpress', 'wp' );
-		if ( in_array( $namespace, $core_namespaces, true ) ) {
-			return array(
-				'type'  => 'core',
-				'label' => __( 'WordPress Core', 'abilities-audit' ),
-			);
-		}
+		/*
+		 * Try to resolve a human-friendly component name for the namespace.
+		 *
+		 * We still display the namespace in parentheses for disambiguation
+		 * (e.g. multiple plugins can have similarly-named brands).
+		 *
+		 * @return array{type: 'plugin'|'theme', label: string}|null
+		 */
+		$resolved_component = null;
 
-		// Active plugins.
+		// Active/inactive plugins (best-effort slug match).
 		if ( ! function_exists( 'get_plugins' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
@@ -256,39 +259,106 @@ final class Abilities_Audit {
 			if ( '.' === $slug ) {
 				$slug = basename( $plugin_file, '.php' );
 			}
-			if ( $slug === $namespace ) {
-				$active = is_plugin_active( $plugin_file );
-				return array(
-					'type'  => 'plugin',
-					'label' => $plugin_data['Name'] . ( $active ? '' : ' ' . __( '(inactive)', 'abilities-audit' ) ),
-				);
+			if ( $slug !== $namespace ) {
+				continue;
 			}
+
+			$active = function_exists( 'is_plugin_active' ) ? is_plugin_active( $plugin_file ) : true;
+			$resolved_component = array(
+				'type'  => 'plugin',
+				'label' => $plugin_data['Name'] . ( $active ? '' : ' ' . __( '(inactive)', 'abilities-audit' ) ),
+			);
+			break;
 		}
 
-		// Active theme.
-		$theme = wp_get_theme();
-		if ( $theme->get_stylesheet() === $namespace || $theme->get_template() === $namespace ) {
-			return array(
+		// Theme (namespace matches active theme).
+		if ( null === $resolved_component && ( get_stylesheet() === $namespace || get_template() === $namespace ) ) {
+			$theme = wp_get_theme();
+			$resolved_component = array(
 				'type'  => 'theme',
-				'label' => $theme->get( 'Name' ),
+				'label' => (string) $theme->get( 'Name' ),
 			);
 		}
 
-		// Must-use plugins (best-effort slug match).
-		$mu_plugins = get_mu_plugins();
-		foreach ( $mu_plugins as $mu_file => $mu_data ) {
-			$slug = basename( $mu_file, '.php' );
-			if ( $slug === $namespace ) {
-				return array(
-					'type'  => 'mu-plugin',
+		// Must-use plugins (best-effort basename match).
+		if ( null === $resolved_component && function_exists( 'get_mu_plugins' ) ) {
+			$mu_plugins = get_mu_plugins();
+			foreach ( $mu_plugins as $mu_file => $mu_data ) {
+				$slug = basename( $mu_file, '.php' );
+				if ( $slug !== $namespace ) {
+					continue;
+				}
+
+				$resolved_component = array(
+					'type'  => 'plugin',
 					'label' => $mu_data['Name'],
 				);
+				break;
 			}
 		}
 
+		// Meta override (if provided by the ability).
+		if ( is_array( $meta ) && isset( $meta['provider'] ) ) {
+			$provider = (string) $meta['provider'];
+			if ( 'Core' === $provider ) {
+				return array(
+					'type'  => 'core',
+					'label' => in_array( $namespace, $core_namespaces, true )
+						? __( 'Core', 'abilities-audit' )
+						: sprintf( __( 'Core (%s)', 'abilities-audit' ), $namespace ),
+				);
+			}
+			if ( 'Theme' === $provider ) {
+				return array(
+					'type'  => 'theme',
+					'label' => $resolved_component && 'theme' === $resolved_component['type']
+						? sprintf( __( 'Theme (%s)', 'abilities-audit' ), $resolved_component['label'] )
+						: sprintf( __( 'Theme (%s)', 'abilities-audit' ), $namespace ),
+				);
+			}
+			if ( 'Plugin' === $provider ) {
+				return array(
+					'type'  => 'plugin',
+					'label' => $resolved_component && 'plugin' === $resolved_component['type']
+						? sprintf( __( 'Plugin (%s)', 'abilities-audit' ), $resolved_component['label'] )
+						: sprintf( __( 'Plugin (%s)', 'abilities-audit' ), $namespace ),
+				);
+			}
+
+			// Unknown provider slug: still show it, but keep namespace for disambiguation.
+			return array(
+				'type'  => 'plugin',
+				'label' => $provider . ' (' . $namespace . ')',
+			);
+		}
+
+		// WordPress core abilities (namespace/ability format).
+		if ( in_array( $namespace, $core_namespaces, true ) ) {
+			return array(
+				'type'  => 'core',
+				'label' => __( 'Core', 'abilities-audit' ),
+			);
+		}
+
+		// Theme abilities.
+		if ( $resolved_component && 'theme' === $resolved_component['type'] ) {
+			return array(
+				'type'  => 'theme',
+				'label' => sprintf( __( 'Theme (%s)', 'abilities-audit' ), $resolved_component['label'] ),
+			);
+		}
+
+		// Default to Plugin.
+		if ( $resolved_component && 'plugin' === $resolved_component['type'] ) {
+			return array(
+				'type'  => 'plugin',
+				'label' => sprintf( __( 'Plugin (%s)', 'abilities-audit' ), $resolved_component['label'] ),
+			);
+		}
+
 		return array(
-			'type'  => 'unknown',
-			'label' => sprintf( __( 'Unknown (%s)', 'abilities-audit' ), esc_html( $namespace ) ),
+			'type'  => 'plugin',
+			'label' => sprintf( __( 'Plugin (%s)', 'abilities-audit' ), $namespace ),
 		);
 	}
 
@@ -364,18 +434,18 @@ final class Abilities_Audit {
 				<table class="wp-list-table widefat fixed striped" id="abilities-audit-table">
 					<thead>
 						<tr>
-							<th class="column-status" style="width:80px;"><?php esc_html_e( 'Status', 'abilities-audit' ); ?></th>
+							<th class="column-status" style="width:70px;"><?php esc_html_e( 'Status', 'abilities-audit' ); ?></th>
 							<th class="column-name" style="width:220px;"><?php esc_html_e( 'Name', 'abilities-audit' ); ?></th>
-							<th class="column-label" style="width:180px;"><?php esc_html_e( 'Label', 'abilities-audit' ); ?></th>
-							<th class="column-source" style="width:160px;"><?php esc_html_e( 'Source', 'abilities-audit' ); ?></th>
+							<th class="column-label" style="width:170px;"><?php esc_html_e( 'Label', 'abilities-audit' ); ?></th>
+							<th class="column-source" style="width:200px;"><?php esc_html_e( 'Source', 'abilities-audit' ); ?></th>
 							<th class="column-description"><?php esc_html_e( 'Description', 'abilities-audit' ); ?></th>
-							<th class="column-schema" style="width:100px;"><?php esc_html_e( 'Schema', 'abilities-audit' ); ?></th>
+							<th class="column-schema" style="width:80px;"><?php esc_html_e( 'Schema', 'abilities-audit' ); ?></th>
 						</tr>
 					</thead>
 					<tbody>
 						<?php foreach ( $abilities as $name => $ability ) :
 							$is_disabled = in_array( $name, $disabled, true );
-							$source      = $this->detect_source( $name );
+							$source      = $this->detect_source( $name, $ability instanceof \WP_Ability ? $ability->get_meta() : array() );
 							if ( $ability instanceof \WP_Ability ) {
 								$label       = $ability->get_label();
 								$description = $ability->get_description();
