@@ -3,7 +3,7 @@
  * Plugin Name: Abilities Audit
  * Plugin URI:  https://github.com/tenacityio/abilities-audit
  * Description: Audit and governance dashboard for the WordPress Abilities API. View, inspect, and toggle registered abilities from a single admin screen.
- * Version:     0.1.0
+ * Version:     0.2.0
  * Requires at least: 6.9
  * Tested up to: 6.9
  * Requires PHP: 7.4
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ABILITIES_AUDIT_VERSION', '0.1.0' );
+define( 'ABILITIES_AUDIT_VERSION', '0.2.0' );
 
 /**
  * Main plugin class.
@@ -48,6 +48,9 @@ final class Abilities_Audit {
 
 	/** @var bool Whether capture_and_filter() has successfully run. */
 	private $snapshot_captured = false;
+
+	/** @var bool Re-entrance guard for capture_and_filter(). */
+	private $is_capturing = false;
 
 	/**
 	 * Get or create the singleton instance.
@@ -141,13 +144,16 @@ final class Abilities_Audit {
 				'ajaxurl'         => admin_url( 'admin-ajax.php' ),
 				'summaryTemplate' => __( '%1$d abilities registered. %2$d enabled, %3$d disabled.', 'abilities-audit' ),
 				'i18n'            => array(
-					'hide'        => __( 'Hide', 'abilities-audit' ),
-					'view'        => __( 'View', 'abilities-audit' ),
-					'error'       => __( 'Error', 'abilities-audit' ),
-					'on'          => __( 'On', 'abilities-audit' ),
-					'off'         => __( 'Off', 'abilities-audit' ),
-					'enableAria'  => __( 'Enable %s', 'abilities-audit' ),
-					'disableAria' => __( 'Disable %s', 'abilities-audit' ),
+					'hide'             => __( 'Hide', 'abilities-audit' ),
+					'view'             => __( 'View', 'abilities-audit' ),
+					'error'            => __( 'Error', 'abilities-audit' ),
+					'on'               => __( 'On', 'abilities-audit' ),
+					'off'              => __( 'Off', 'abilities-audit' ),
+					'enableAria'       => __( 'Enable %s', 'abilities-audit' ),
+					'disableAria'      => __( 'Disable %s', 'abilities-audit' ),
+					'schemaAnnotations' => __( 'Annotations', 'abilities-audit' ),
+					'schemaInput'      => __( 'Input Schema', 'abilities-audit' ),
+					'schemaOutput'     => __( 'Output Schema', 'abilities-audit' ),
 				),
 			)
 		);
@@ -174,13 +180,19 @@ final class Abilities_Audit {
 	 */
 	public function capture_and_filter() {
 		// Run once per request: a second pass would re-snapshot after unregistering.
-		if ( $this->snapshot_captured ) {
+		if ( $this->snapshot_captured || $this->is_capturing ) {
 			return;
 		}
 
 		if ( ! function_exists( 'wp_get_abilities' ) ) {
 			return;
 		}
+
+		// Guard against re-entrance: wp_get_abilities() may lazy-fire
+		// wp_abilities_api_init, which would invoke this method again at
+		// priority 999 and overwrite the snapshot with a post-unregistration
+		// registry.
+		$this->is_capturing = true;
 
 		$registry = wp_get_abilities();
 		if ( ! is_array( $registry ) ) {
@@ -197,6 +209,8 @@ final class Abilities_Audit {
 				wp_unregister_ability( $name );
 			}
 		}
+
+		$this->is_capturing = false;
 
 		// Mark complete when we have data, or after wp_loaded so ensure_capture() does not loop on empty sites.
 		$this->snapshot_captured = ! empty( $this->abilities_snapshot ) || did_action( 'wp_loaded' );
@@ -601,10 +615,52 @@ final class Abilities_Audit {
 
 		update_option( self::OPTION_DISABLED, $disabled, true );
 
+		$schema_target_id = sanitize_title( $ability );
+		$input_schema     = array();
+		$output_schema    = array();
+		$annotations      = array();
+		$description      = '';
+
+		if ( 'disabled' === $new_state ) {
+			$description = __( 'This ability is disabled and not registered in this request. Turn it on to restore it.', 'abilities-audit' );
+		} else {
+			// Try the in-memory snapshot first, then query the live registry.
+			$ability_obj = isset( $this->abilities_snapshot[ $ability ] ) ? $this->abilities_snapshot[ $ability ] : null;
+			if ( ! $ability_obj instanceof \WP_Ability && function_exists( 'wp_get_abilities' ) ) {
+				$registry    = wp_get_abilities();
+				$ability_obj = is_array( $registry ) && isset( $registry[ $ability ] ) ? $registry[ $ability ] : null;
+			}
+			if ( $ability_obj instanceof \WP_Ability ) {
+				$description   = $ability_obj->get_description();
+				$input_schema  = $ability_obj->get_input_schema();
+				$output_schema = $ability_obj->get_output_schema();
+				$annotations   = method_exists( $ability_obj, 'get_annotations' ) ? $ability_obj->get_annotations() : array();
+			}
+			if ( ! is_array( $input_schema ) ) {
+				$input_schema = array();
+			}
+			if ( ! is_array( $output_schema ) ) {
+				$output_schema = array();
+			}
+			if ( ! is_array( $annotations ) ) {
+				$annotations = array();
+			}
+		}
+
+		$has_schema = ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations );
+
 		wp_send_json_success(
 			array(
-				'ability' => $ability,
-				'state'   => $new_state,
+				'ability'          => $ability,
+				'state'            => $new_state,
+				'description'      => $description,
+				'has_schema'       => $has_schema,
+				'schema_target_id' => $schema_target_id,
+				'schema'           => array(
+					'input_schema'  => $input_schema,
+					'output_schema' => $output_schema,
+					'annotations'   => $annotations,
+				),
 			)
 		);
 	}

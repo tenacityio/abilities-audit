@@ -2,7 +2,7 @@
 
 Audit and govern registered [WordPress Abilities API](https://make.wordpress.org/core/) abilities from a single **Tools** screen.
 
-**Version:** 0.1.1 (beta)  
+**Version:** 0.2.0 (beta)  
 **Requires:** WordPress 6.9+, PHP 7.4+  
 **License:** GPL-2.0-or-later  
 
@@ -59,6 +59,17 @@ Abilities Audit only controls **whether the ability is registered** on the site.
 The canonical plugin metadata for WordPress.org is in [`readme.txt`](readme.txt).
 
 ## Changelog
+
+### 0.2.0
+
+- Live-update Description and Schema columns when toggling abilities on or off, driven by the AJAX response rather than requiring a page reload.
+- Fix re-entrance bug in `capture_and_filter()` that caused the abilities snapshot to lose disabled entries when `wp_get_abilities()` lazy-fired `wp_abilities_api_init`.
+- Disabled abilities now show their real description and schema on the audit page instead of a generic fallback message.
+- Use event delegation for schema View/Hide buttons so dynamically created buttons work without rebinding.
+
+### 0.1.1
+
+- Update Source display to classify abilities as Core/Plugin/Theme and prefer the plugin/theme name when resolvable.
 
 ### 0.1.0
 

@@ -4,7 +4,7 @@ Tags: abilities, audit, ai, governance, tools, admin
 Requires at least: 6.9
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.1.1
+Stable tag: 0.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,15 @@ After activation, open **Tools > Abilities Audit** in the WordPress admin. You n
 2. Expanded schema row showing annotations, input schema, and output schema.
 
 == Changelog ==
+
+= 0.2.0 =
+* Live-update Description and Schema columns when toggling abilities on or off, driven by the AJAX response rather than requiring a page reload.
+* Fix re-entrance bug in capture_and_filter() that caused the abilities snapshot to lose disabled entries when wp_get_abilities() lazy-fired wp_abilities_api_init.
+* Disabled abilities now show their real description and schema on the audit page instead of a generic fallback message.
+* Use event delegation for schema View/Hide buttons so dynamically created buttons work without rebinding.
+
+= 0.1.1 =
+* Update Source display to classify abilities as Core/Plugin/Theme and prefer the plugin/theme name when resolvable.
 
 = 0.1.0 =
 * Initial public beta: audit screen, schema inspection, and ability toggles.
