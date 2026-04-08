@@ -4,7 +4,7 @@ Tags: abilities, audit, ai, governance, tools, admin
 Requires at least: 6.9
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.1.0
+Stable tag: 0.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -14,7 +14,7 @@ Audit and govern registered WordPress Abilities API abilities from a single Tool
 
 Abilities Audit provides an administrative dashboard for sites using the WordPress Abilities API (WordPress 6.9+). From **Tools > Abilities Audit** you can:
 
-* View every ability registered on the site, with label, description, and best-effort source (core, plugin, theme, must-use plugin, or unknown).
+* View every ability registered on the site, with label, description, and Source (Core, Plugin, or Theme). When the ability namespace matches an installed plugin, active theme, or must-use plugin, the badge shows that component's name (for example Plugin (AI)); otherwise it falls back to the namespace slug.
 * Inspect input/output JSON Schema and annotations where available.
 * Toggle abilities on or off. Disabled abilities are unregistered at runtime so they are not exposed via the REST API or to AI agents that consume abilities.
 
