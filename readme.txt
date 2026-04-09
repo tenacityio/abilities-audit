@@ -4,7 +4,7 @@ Tags: abilities, audit, ai, governance, tools, admin
 Requires at least: 6.9
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.3.0
+Stable tag: 0.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -14,7 +14,7 @@ Audit and govern registered WordPress Abilities API abilities from a single Tool
 
 Abilities Audit provides an administrative dashboard for sites using the WordPress Abilities API (WordPress 6.9+). From **Tools > Abilities Audit** you can:
 
-* View every ability registered on the site, with label, description, and Source (Core, Plugin, or Theme). When the ability namespace matches an installed plugin, active theme, or must-use plugin, the badge shows that component's name (for example Plugin (AI)); otherwise it falls back to the namespace slug.
+* View every ability registered on the site, with label, description, Flags (annotations and exposure hints from ability meta), and Source (Core, Plugin, or Theme). When the ability namespace matches an installed plugin, active theme, or must-use plugin, the badge shows that component's name (for example Plugin (AI)); otherwise it falls back to the namespace slug.
 * Inspect input/output JSON Schema, annotations where available, and **Raw Data** (name, label, description, schemas, and meta)—the same consolidated payload shape as the Abilities Explorer detail view in the AI plugin.
 * Toggle abilities on or off. Disabled abilities are unregistered at runtime so they are not exposed via the REST API or to AI agents that consume abilities.
 
@@ -50,10 +50,13 @@ After activation, open **Tools > Abilities Audit** in the WordPress admin. You n
 
 == Screenshots ==
 
-1. The Abilities Audit table listing status, name, label, source, description, and schema actions.
+1. The Abilities Audit table listing status, name, label, source, description, flags, and schema actions.
 2. Expanded schema row showing Raw Data, annotations, input schema, and output schema.
 
 == Changelog ==
+
+= 0.4.0 =
+* Add a Flags column between Description and Schema: color-graded badges for Read-only, Idempotent, REST, MCP, Destructive, Undeclared (all annotation booleans null), and an Instructions hint when meta includes agent guidance.
 
 = 0.3.0 =
 * Add Raw Data to the expandable schema panel: pretty-printed JSON for name, label, description, input/output schemas, and ability meta (aligned with Abilities Explorer).
