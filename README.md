@@ -2,7 +2,7 @@
 
 Audit and govern registered [WordPress Abilities API](https://make.wordpress.org/core/) abilities from a single **Tools** screen.
 
-**Version:** 0.2.0 (beta)  
+**Version:** 0.3.0 (beta)  
 **Requires:** WordPress 6.9+, PHP 7.4+  
 **License:** GPL-2.0-or-later  
 
@@ -11,7 +11,7 @@ This release is a **public beta** on GitHub ahead of a WordPress.org listing. Re
 ## Features
 
 - View every ability registered on the site, with label, description, and **Source** (Core, Plugin, or Theme). When the ability namespace matches an installed plugin, active theme, or must-use plugin, the badge shows that component's name (for example `Plugin (AI)`); otherwise it falls back to the namespace slug.
-- Inspect input/output JSON Schema and annotations where available.
+- Inspect input/output JSON Schema, annotations where available, and **Raw Data** (name, label, description, schemas, and meta)—the same consolidated payload shape as the Abilities Explorer detail view in the AI plugin.
 - Toggle abilities on or off. Disabled abilities are unregistered at runtime so they are not exposed via the REST API or to integrations that consume abilities.
 
 This plugin is intended for administrators who need visibility and control over which abilities are active on a site.
@@ -59,6 +59,10 @@ Abilities Audit only controls **whether the ability is registered** on the site.
 The canonical plugin metadata for WordPress.org is in [`readme.txt`](readme.txt).
 
 ## Changelog
+
+### 0.3.0
+
+- Add Raw Data to the expandable schema panel: pretty-printed JSON for name, label, description, input/output schemas, and ability meta (aligned with Abilities Explorer).
 
 ### 0.2.0
 

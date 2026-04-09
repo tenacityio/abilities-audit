@@ -3,7 +3,7 @@
  * Plugin Name: Abilities Audit
  * Plugin URI:  https://github.com/tenacityio/abilities-audit
  * Description: Audit and governance dashboard for the WordPress Abilities API. View, inspect, and toggle registered abilities from a single admin screen.
- * Version:     0.2.0
+ * Version:     0.3.0
  * Requires at least: 6.9
  * Tested up to: 6.9
  * Requires PHP: 7.4
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ABILITIES_AUDIT_VERSION', '0.2.0' );
+define( 'ABILITIES_AUDIT_VERSION', '0.3.0' );
 
 /**
  * Main plugin class.
@@ -154,6 +154,7 @@ final class Abilities_Audit {
 					'schemaAnnotations' => __( 'Annotations', 'abilities-audit' ),
 					'schemaInput'      => __( 'Input Schema', 'abilities-audit' ),
 					'schemaOutput'     => __( 'Output Schema', 'abilities-audit' ),
+					'schemaRawData'    => __( 'Raw Data', 'abilities-audit' ),
 				),
 			)
 		);
@@ -457,22 +458,35 @@ final class Abilities_Audit {
 						</tr>
 					</thead>
 					<tbody>
-						<?php foreach ( $abilities as $name => $ability ) :
+						<?php foreach ( $abilities as $name => $ability_obj ) :
 							$is_disabled = in_array( $name, $disabled, true );
-							$source      = $this->detect_source( $name, $ability instanceof \WP_Ability ? $ability->get_meta() : array() );
-							if ( $ability instanceof \WP_Ability ) {
-								$label       = $ability->get_label();
-								$description = $ability->get_description();
+							$meta        = $ability_obj instanceof \WP_Ability ? $ability_obj->get_meta() : array();
+							if ( ! is_array( $meta ) ) {
+								$meta = array();
+							}
+							$source = $this->detect_source( $name, $meta );
+							if ( $ability_obj instanceof \WP_Ability ) {
+								$label       = $ability_obj->get_label();
+								$description = $ability_obj->get_description();
 
-								$input_schema  = $ability->get_input_schema();
-								$output_schema = $ability->get_output_schema();
-								$annotations   = method_exists( $ability, 'get_annotations' ) ? $ability->get_annotations() : array();
+								$input_schema  = $ability_obj->get_input_schema();
+								$output_schema = $ability_obj->get_output_schema();
+								$annotations   = method_exists( $ability_obj, 'get_annotations' ) ? $ability_obj->get_annotations() : array();
+								$raw_data      = array(
+									'name'          => $name,
+									'label'         => $label,
+									'description'   => $description,
+									'input_schema'  => $input_schema,
+									'output_schema' => $output_schema,
+									'meta'          => $meta,
+								);
 							} else {
 								$label       = $name;
 								$description = __( 'This ability is disabled and not registered in this request. Turn it on to restore it.', 'abilities-audit' );
 								$input_schema  = array();
 								$output_schema = array();
 								$annotations   = array();
+								$raw_data      = array();
 							}
 
 							$source_badge_class = 'abilities-audit-badge abilities-audit-badge--' . esc_attr( $source['type'] );
@@ -508,7 +522,7 @@ final class Abilities_Audit {
 									<?php echo esc_html( $description ); ?>
 								</td>
 								<td class="column-schema">
-									<?php if ( ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations ) ) : ?>
+									<?php if ( ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations ) || ! empty( $raw_data ) ) : ?>
 										<button type="button" class="button button-small abilities-audit-schema-toggle" data-target="schema-<?php echo esc_attr( sanitize_title( $name ) ); ?>">
 											<?php esc_html_e( 'View', 'abilities-audit' ); ?>
 										</button>
@@ -517,9 +531,28 @@ final class Abilities_Audit {
 									<?php endif; ?>
 								</td>
 							</tr>
-							<?php if ( ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations ) ) : ?>
+							<?php if ( ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations ) || ! empty( $raw_data ) ) : ?>
 								<tr class="abilities-audit-schema-row" id="schema-<?php echo esc_attr( sanitize_title( $name ) ); ?>" style="display:none;">
 									<td colspan="6" style="padding:12px 20px;background:#f9f9f9;">
+										<?php
+										// Abilities Explorer raw_data shape; built from row vars (always output in this row).
+										$raw_for_display = array(
+											'name'          => $name,
+											'label'         => $label,
+											'description'   => $description,
+											'input_schema'  => $input_schema,
+											'output_schema' => $output_schema,
+											'meta'          => $meta,
+										);
+										$raw_json = wp_json_encode( $raw_for_display, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+										if ( false === $raw_json ) {
+											$raw_json = '{}';
+										}
+										?>
+										<div class="abilities-audit-schema-section abilities-audit-schema-section--raw">
+											<strong><?php esc_html_e( 'Raw Data', 'abilities-audit' ); ?></strong>
+											<pre style="margin:4px 0 12px;white-space:pre-wrap;"><?php echo esc_html( $raw_json ); ?></pre>
+										</div>
 										<?php if ( ! empty( $annotations ) ) : ?>
 											<div class="abilities-audit-schema-section">
 												<strong><?php esc_html_e( 'Annotations', 'abilities-audit' ); ?></strong>
@@ -619,7 +652,8 @@ final class Abilities_Audit {
 		$input_schema     = array();
 		$output_schema    = array();
 		$annotations      = array();
-		$description      = '';
+		$raw_data           = array();
+		$description        = '';
 
 		if ( 'disabled' === $new_state ) {
 			$description = __( 'This ability is disabled and not registered in this request. Turn it on to restore it.', 'abilities-audit' );
@@ -645,9 +679,24 @@ final class Abilities_Audit {
 			if ( ! is_array( $annotations ) ) {
 				$annotations = array();
 			}
+			if ( $ability_obj instanceof \WP_Ability ) {
+				$meta = $ability_obj->get_meta();
+				if ( ! is_array( $meta ) ) {
+					$meta = array();
+				}
+				$label    = $ability_obj->get_label();
+				$raw_data = array(
+					'name'          => $ability,
+					'label'         => $label,
+					'description'   => $description,
+					'input_schema'  => $input_schema,
+					'output_schema' => $output_schema,
+					'meta'          => $meta,
+				);
+			}
 		}
 
-		$has_schema = ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations );
+		$has_schema = ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations ) || ! empty( $raw_data );
 
 		wp_send_json_success(
 			array(
@@ -660,6 +709,7 @@ final class Abilities_Audit {
 					'input_schema'  => $input_schema,
 					'output_schema' => $output_schema,
 					'annotations'   => $annotations,
+					'raw_data'      => $raw_data,
 				),
 			)
 		);
