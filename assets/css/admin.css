@@ -63,3 +63,63 @@
 .abilities-audit-schema-section:last-child {
 	margin-bottom: 0;
 }
+
+/* Flags column: safe (green) → surface (slate/purple) → dangerous (red) → unknown (amber/grey) */
+#abilities-audit-table .column-flags {
+	vertical-align: top;
+}
+
+.abilities-audit-flags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 6px;
+	align-items: center;
+	max-width: 220px;
+}
+
+.abilities-audit-flag {
+	display: inline-block;
+	padding: 2px 7px;
+	border-radius: 3px;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.4;
+	white-space: nowrap;
+}
+
+.abilities-audit-flag--readonly {
+	background: #d4edda;
+	color: #155724;
+}
+
+.abilities-audit-flag--idempotent {
+	background: #d1ecf1;
+	color: #0c5460;
+}
+
+.abilities-audit-flag--rest {
+	background: #e2e3e5;
+	color: #383d41;
+}
+
+.abilities-audit-flag--mcp {
+	background: #e2d5f1;
+	color: #432874;
+}
+
+.abilities-audit-flag--destructive {
+	background: #f8d7da;
+	color: #721c24;
+}
+
+.abilities-audit-flag--undeclared {
+	background: #fff3cd;
+	color: #856404;
+}
+
+.abilities-audit-flag--instructions {
+	background: #e7f3ff;
+	color: #004085;
+	cursor: help;
+	border: 1px dashed #b8daff;
+}

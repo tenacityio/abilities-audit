@@ -3,7 +3,7 @@
  * Plugin Name: Abilities Audit
  * Plugin URI:  https://github.com/tenacityio/abilities-audit
  * Description: Audit and governance dashboard for the WordPress Abilities API. View, inspect, and toggle registered abilities from a single admin screen.
- * Version:     0.3.0
+ * Version:     0.4.0
  * Requires at least: 6.9
  * Tested up to: 6.9
  * Requires PHP: 7.4
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ABILITIES_AUDIT_VERSION', '0.3.0' );
+define( 'ABILITIES_AUDIT_VERSION', '0.4.0' );
 
 /**
  * Main plugin class.
@@ -377,6 +377,65 @@ final class Abilities_Audit {
 		);
 	}
 
+	/**
+	 * Build HTML for the Flags column from ability meta (annotations, REST, MCP).
+	 *
+	 * @param array<string,mixed> $meta Ability meta.
+	 * @return string HTML (escaped).
+	 */
+	private function render_ability_flags_html( array $meta ): string {
+		$annotations = isset( $meta['annotations'] ) && is_array( $meta['annotations'] ) ? $meta['annotations'] : array();
+
+		$readonly    = array_key_exists( 'readonly', $annotations ) ? $annotations['readonly'] : null;
+		$destructive = array_key_exists( 'destructive', $annotations ) ? $annotations['destructive'] : null;
+		$idempotent  = array_key_exists( 'idempotent', $annotations ) ? $annotations['idempotent'] : null;
+
+		$instructions = '';
+		if ( isset( $annotations['instructions'] ) && is_string( $annotations['instructions'] ) ) {
+			$instructions = $annotations['instructions'];
+		}
+
+		$show_in_rest = isset( $meta['show_in_rest'] ) && true === $meta['show_in_rest'];
+
+		$mcp_public = false;
+		if ( isset( $meta['mcp'] ) && is_array( $meta['mcp'] ) && isset( $meta['mcp']['public'] ) ) {
+			$mcp_public = true === $meta['mcp']['public'];
+		}
+
+		$all_annotation_null = ( null === $readonly && null === $destructive && null === $idempotent );
+
+		$pieces = array();
+
+		if ( true === $readonly ) {
+			$pieces[] = '<span class="abilities-audit-flag abilities-audit-flag--readonly">' . esc_html__( 'Read-only', 'abilities-audit' ) . '</span>';
+		}
+		if ( true === $idempotent ) {
+			$pieces[] = '<span class="abilities-audit-flag abilities-audit-flag--idempotent">' . esc_html__( 'Idempotent', 'abilities-audit' ) . '</span>';
+		}
+		if ( $show_in_rest ) {
+			$pieces[] = '<span class="abilities-audit-flag abilities-audit-flag--rest">' . esc_html__( 'REST', 'abilities-audit' ) . '</span>';
+		}
+		if ( $mcp_public ) {
+			$pieces[] = '<span class="abilities-audit-flag abilities-audit-flag--mcp">' . esc_html__( 'MCP', 'abilities-audit' ) . '</span>';
+		}
+		if ( true === $destructive ) {
+			$pieces[] = '<span class="abilities-audit-flag abilities-audit-flag--destructive">' . esc_html__( 'Destructive', 'abilities-audit' ) . '</span>';
+		}
+		if ( $all_annotation_null ) {
+			$pieces[] = '<span class="abilities-audit-flag abilities-audit-flag--undeclared">' . esc_html__( 'Undeclared', 'abilities-audit' ) . '</span>';
+		}
+
+		if ( '' !== $instructions ) {
+			$pieces[] = '<span class="abilities-audit-flag abilities-audit-flag--instructions" title="' . esc_attr( $instructions ) . '">' . esc_html__( 'Instructions', 'abilities-audit' ) . '</span>';
+		}
+
+		if ( empty( $pieces ) ) {
+			return '<span class="description">&mdash;</span>';
+		}
+
+		return '<div class="abilities-audit-flags">' . implode( '', $pieces ) . '</div>';
+	}
+
 	// ------------------------------------------------------------------
 	//  Admin page
 	// ------------------------------------------------------------------
@@ -454,6 +513,7 @@ final class Abilities_Audit {
 							<th class="column-label" style="width:170px;"><?php esc_html_e( 'Label', 'abilities-audit' ); ?></th>
 							<th class="column-source" style="width:200px;"><?php esc_html_e( 'Source', 'abilities-audit' ); ?></th>
 							<th class="column-description"><?php esc_html_e( 'Description', 'abilities-audit' ); ?></th>
+							<th class="column-flags" style="width:180px;"><?php esc_html_e( 'Flags', 'abilities-audit' ); ?></th>
 							<th class="column-schema" style="width:80px;"><?php esc_html_e( 'Schema', 'abilities-audit' ); ?></th>
 						</tr>
 					</thead>
@@ -521,6 +581,24 @@ final class Abilities_Audit {
 								<td class="column-description">
 									<?php echo esc_html( $description ); ?>
 								</td>
+								<td class="column-flags">
+									<?php
+									if ( $ability_obj instanceof \WP_Ability ) {
+										echo wp_kses(
+											$this->render_ability_flags_html( $meta ),
+											array(
+												'div'  => array( 'class' => true ),
+												'span' => array(
+													'class' => true,
+													'title' => true,
+												),
+											)
+										);
+									} else {
+										echo '<span class="description">&mdash;</span>';
+									}
+									?>
+								</td>
 								<td class="column-schema">
 									<?php if ( ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations ) || ! empty( $raw_data ) ) : ?>
 										<button type="button" class="button button-small abilities-audit-schema-toggle" data-target="schema-<?php echo esc_attr( sanitize_title( $name ) ); ?>">
@@ -533,7 +611,7 @@ final class Abilities_Audit {
 							</tr>
 							<?php if ( ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations ) || ! empty( $raw_data ) ) : ?>
 								<tr class="abilities-audit-schema-row" id="schema-<?php echo esc_attr( sanitize_title( $name ) ); ?>" style="display:none;">
-									<td colspan="6" style="padding:12px 20px;background:#f9f9f9;">
+									<td colspan="7" style="padding:12px 20px;background:#f9f9f9;">
 										<?php
 										// Abilities Explorer raw_data shape; built from row vars (always output in this row).
 										$raw_for_display = array(
@@ -584,7 +662,7 @@ final class Abilities_Audit {
 					<tfoot>
 						<tr>
 							<th
-								colspan="6"
+								colspan="7"
 								id="abilities-audit-summary"
 								data-total="<?php echo esc_attr( (string) $total ); ?>"
 								data-on="<?php echo esc_attr( (string) $on ); ?>"
@@ -652,24 +730,22 @@ final class Abilities_Audit {
 		$input_schema     = array();
 		$output_schema    = array();
 		$annotations      = array();
-		$raw_data           = array();
-		$description        = '';
+		$raw_data         = array();
+		$description      = '';
 
-		if ( 'disabled' === $new_state ) {
-			$description = __( 'This ability is disabled and not registered in this request. Turn it on to restore it.', 'abilities-audit' );
-		} else {
-			// Try the in-memory snapshot first, then query the live registry.
-			$ability_obj = isset( $this->abilities_snapshot[ $ability ] ) ? $this->abilities_snapshot[ $ability ] : null;
-			if ( ! $ability_obj instanceof \WP_Ability && function_exists( 'wp_get_abilities' ) ) {
-				$registry    = wp_get_abilities();
-				$ability_obj = is_array( $registry ) && isset( $registry[ $ability ] ) ? $registry[ $ability ] : null;
-			}
-			if ( $ability_obj instanceof \WP_Ability ) {
-				$description   = $ability_obj->get_description();
-				$input_schema  = $ability_obj->get_input_schema();
-				$output_schema = $ability_obj->get_output_schema();
-				$annotations   = method_exists( $ability_obj, 'get_annotations' ) ? $ability_obj->get_annotations() : array();
-			}
+		// Snapshot still holds WP_Ability objects captured before unregister; use it when disabled so
+		// description/schema/flags stay available in the UI (registry has no entry after disable).
+		$ability_obj = isset( $this->abilities_snapshot[ $ability ] ) ? $this->abilities_snapshot[ $ability ] : null;
+		if ( 'enabled' === $new_state && ! $ability_obj instanceof \WP_Ability && function_exists( 'wp_get_abilities' ) ) {
+			$registry    = wp_get_abilities();
+			$ability_obj = is_array( $registry ) && isset( $registry[ $ability ] ) ? $registry[ $ability ] : null;
+		}
+
+		if ( $ability_obj instanceof \WP_Ability ) {
+			$description   = $ability_obj->get_description();
+			$input_schema  = $ability_obj->get_input_schema();
+			$output_schema = $ability_obj->get_output_schema();
+			$annotations   = method_exists( $ability_obj, 'get_annotations' ) ? $ability_obj->get_annotations() : array();
 			if ( ! is_array( $input_schema ) ) {
 				$input_schema = array();
 			}
@@ -679,30 +755,40 @@ final class Abilities_Audit {
 			if ( ! is_array( $annotations ) ) {
 				$annotations = array();
 			}
-			if ( $ability_obj instanceof \WP_Ability ) {
-				$meta = $ability_obj->get_meta();
-				if ( ! is_array( $meta ) ) {
-					$meta = array();
-				}
-				$label    = $ability_obj->get_label();
-				$raw_data = array(
-					'name'          => $ability,
-					'label'         => $label,
-					'description'   => $description,
-					'input_schema'  => $input_schema,
-					'output_schema' => $output_schema,
-					'meta'          => $meta,
-				);
+			$meta = $ability_obj->get_meta();
+			if ( ! is_array( $meta ) ) {
+				$meta = array();
 			}
+			$label    = $ability_obj->get_label();
+			$raw_data = array(
+				'name'          => $ability,
+				'label'         => $label,
+				'description'   => $description,
+				'input_schema'  => $input_schema,
+				'output_schema' => $output_schema,
+				'meta'          => $meta,
+			);
+		} elseif ( 'disabled' === $new_state ) {
+			$description = __( 'This ability is disabled and not registered in this request. Turn it on to restore it.', 'abilities-audit' );
 		}
 
 		$has_schema = ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations ) || ! empty( $raw_data );
+
+		$flags_html = '<span class="description">&mdash;</span>';
+		if ( $ability_obj instanceof \WP_Ability ) {
+			$meta_for_flags = $ability_obj->get_meta();
+			if ( ! is_array( $meta_for_flags ) ) {
+				$meta_for_flags = array();
+			}
+			$flags_html = $this->render_ability_flags_html( $meta_for_flags );
+		}
 
 		wp_send_json_success(
 			array(
 				'ability'          => $ability,
 				'state'            => $new_state,
 				'description'      => $description,
+				'flags_html'       => $flags_html,
 				'has_schema'       => $has_schema,
 				'schema_target_id' => $schema_target_id,
 				'schema'           => array(

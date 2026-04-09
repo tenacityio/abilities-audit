@@ -121,7 +121,7 @@
 		tr.id = 'schema-' + schemaTargetId;
 		tr.style.display = 'none';
 		var td = document.createElement('td');
-		td.colSpan = 6;
+		td.colSpan = 7;
 		td.style.padding = '12px 20px';
 		td.style.background = '#f9f9f9';
 		tr.appendChild(td);
@@ -138,6 +138,10 @@
 		var descCell = mainRow.querySelector('.column-description');
 		if (descCell && typeof payload.description === 'string') {
 			descCell.textContent = payload.description;
+		}
+		var flagsCell = mainRow.querySelector('.column-flags');
+		if (flagsCell && typeof payload.flags_html === 'string') {
+			flagsCell.innerHTML = payload.flags_html;
 		}
 		var schemaCell = mainRow.querySelector('.column-schema');
 		if (!schemaCell) {
