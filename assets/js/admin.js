@@ -14,6 +14,7 @@
 	var schemaAnnotationsLabel = i18n.schemaAnnotations || 'Annotations';
 	var schemaInputLabel = i18n.schemaInput || 'Input Schema';
 	var schemaOutputLabel = i18n.schemaOutput || 'Output Schema';
+	var schemaRawDataLabel = i18n.schemaRawData || 'Raw Data';
 
 	function ariaForState(state, abilityName) {
 		var tpl =
@@ -73,7 +74,13 @@
 		var pre = document.createElement('pre');
 		pre.style.margin = '4px 0 12px';
 		pre.style.whiteSpace = 'pre-wrap';
-		pre.textContent = JSON.stringify(data, null, 2);
+		var jsonText;
+		try {
+			jsonText = JSON.stringify(data, null, 2);
+		} catch (e) {
+			jsonText = String(data);
+		}
+		pre.textContent = jsonText;
 		section.appendChild(strong);
 		section.appendChild(pre);
 		container.appendChild(section);
@@ -81,6 +88,7 @@
 
 	function fillSchemaDetailCell(td, schema) {
 		td.textContent = '';
+		appendSchemaSection(td, schemaRawDataLabel, schema.raw_data);
 		appendSchemaSection(td, schemaAnnotationsLabel, schema.annotations);
 		appendSchemaSection(td, schemaInputLabel, schema.input_schema);
 		appendSchemaSection(td, schemaOutputLabel, schema.output_schema);
@@ -166,6 +174,7 @@
 				annotations: schema.annotations,
 				input_schema: schema.input_schema,
 				output_schema: schema.output_schema,
+				raw_data: schema.raw_data,
 			});
 		}
 		detailRow.style.display = 'none';
