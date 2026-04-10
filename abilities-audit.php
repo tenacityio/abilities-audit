@@ -3,7 +3,7 @@
  * Plugin Name: Abilities Audit
  * Plugin URI:  https://github.com/tenacityio/abilities-audit
  * Description: Audit and governance dashboard for the WordPress Abilities API. View, inspect, and toggle registered abilities from a single admin screen.
- * Version:     0.4.0
+ * Version:     0.5.0
  * Requires at least: 6.9
  * Tested up to: 6.9
  * Requires PHP: 7.4
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ABILITIES_AUDIT_VERSION', '0.4.0' );
+define( 'ABILITIES_AUDIT_VERSION', '0.5.0' );
 
 /**
  * Main plugin class.
@@ -450,6 +450,70 @@ final class Abilities_Audit {
 			self::CAPABILITY,
 			'abilities-audit',
 			array( $this, 'render_admin_page' )
+		);
+
+		if ( ! $this->admin_page_hook ) {
+			return;
+		}
+
+		add_action( "load-{$this->admin_page_hook}", array( $this, 'add_help_tabs' ) );
+	}
+
+	/**
+	 * Add contextual help tabs to the audit screen.
+	 *
+	 * @since 0.5.0
+	 */
+	public function add_help_tabs() {
+		$screen = get_current_screen();
+
+		if ( ! $screen ) {
+			return;
+		}
+
+		$screen->add_help_tab(
+			array(
+				'id'      => 'abilities-audit-overview',
+				'title'   => __( 'Overview', 'abilities-audit' ),
+				'content' =>
+					'<p>' . esc_html__( 'Abilities Audit lists every ability registered on this site through the WordPress Abilities API (WordPress 6.9+). You can inspect labels, descriptions, source, flags, and JSON schemas, and enable or disable each ability from this screen.', 'abilities-audit' ) . '</p>' .
+					'<p>' . esc_html__( 'Find this screen under Tools > Abilities Audit. You need the manage_options capability (typically administrators).', 'abilities-audit' ) . '</p>' .
+					'<p>' . esc_html__( 'When you disable an ability, it is unregistered for the rest of the request lifecycle and its disabled state is saved. Disabled abilities are not listed for integrations that rely on registered abilities (for example the REST API).', 'abilities-audit' ) . '</p>',
+			)
+		);
+
+		$screen->add_help_tab(
+			array(
+				'id'      => 'abilities-audit-flags',
+				'title'   => esc_html__( 'Flags', 'abilities-audit' ),
+				'content' =>
+					'<p>' . esc_html__( 'The Flags column summarizes annotations and meta that describe how an ability behaves and how it is exposed:', 'abilities-audit' ) . '</p>' .
+					'<ul>' .
+						'<li><strong>' . esc_html__( 'Read-only', 'abilities-audit' ) . '</strong> &mdash; ' . esc_html__( 'The ability declares it does not modify data (annotations.readonly is true).', 'abilities-audit' ) . '</li>' .
+						'<li><strong>' . esc_html__( 'Idempotent', 'abilities-audit' ) . '</strong> &mdash; ' . esc_html__( 'The ability declares that repeated calls have the same effect as a single call (annotations.idempotent is true).', 'abilities-audit' ) . '</li>' .
+						'<li><strong>' . esc_html__( 'REST', 'abilities-audit' ) . '</strong> &mdash; ' . esc_html__( 'The ability is exposed via the WordPress REST API (meta.show_in_rest is true).', 'abilities-audit' ) . '</li>' .
+						'<li><strong>' . esc_html__( 'MCP', 'abilities-audit' ) . '</strong> &mdash; ' . esc_html__( 'The ability is published on the public MCP surface (meta.mcp.public is true).', 'abilities-audit' ) . '</li>' .
+						'<li><strong>' . esc_html__( 'Destructive', 'abilities-audit' ) . '</strong> &mdash; ' . esc_html__( 'The ability declares it can permanently remove or alter data (annotations.destructive is true).', 'abilities-audit' ) . '</li>' .
+						'<li><strong>' . esc_html__( 'Undeclared', 'abilities-audit' ) . '</strong> &mdash; ' . esc_html__( 'None of the annotation booleans readonly, idempotent, or destructive are set, so the behavior profile is unknown.', 'abilities-audit' ) . '</li>' .
+						'<li><strong>' . esc_html__( 'Instructions', 'abilities-audit' ) . '</strong> &mdash; ' . esc_html__( 'The ability includes free-text agent guidance in annotations.instructions. Hover the badge to read it.', 'abilities-audit' ) . '</li>' .
+					'</ul>',
+			)
+		);
+
+		$screen->add_help_tab(
+			array(
+				'id'      => 'abilities-audit-disabling',
+				'title'   => esc_html__( 'Disabling Abilities', 'abilities-audit' ),
+				'content' =>
+					'<p>' . esc_html__( 'This plugin only controls whether an ability remains registered on the site. Another integration may still show a button or menu item using its own feature toggles, user capabilities, or permission callbacks; those layers are independent.', 'abilities-audit' ) . '</p>' .
+					'<p>' . esc_html__( 'When an ability is disabled here, attempts to invoke it through paths that require a registered ability will fail. If a control still appears elsewhere, that reflects how that integration builds its UI.', 'abilities-audit' ) . '</p>' .
+					'<p>' . esc_html__( 'Integrators should check that an ability is registered (for example with wp_has_ability()) in addition to other checks, so controls can hide when an ability is disabled or unregistered for any reason.', 'abilities-audit' ) . '</p>',
+			)
+		);
+
+		$screen->set_help_sidebar(
+			'<p><strong>' . esc_html__( 'For more information:', 'abilities-audit' ) . '</strong></p>' .
+			'<p><a href="https://developer.wordpress.org/apis/abilities/" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Abilities API Documentation', 'abilities-audit' ) . '</a></p>'
 		);
 	}
 
