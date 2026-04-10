@@ -2,7 +2,7 @@
 
 Audit and govern registered [WordPress Abilities API](https://make.wordpress.org/core/) abilities from a single **Tools** screen.
 
-**Version:** 0.4.0 (beta)  
+**Version:** 0.5.0 (beta)  
 **Requires:** WordPress 6.9+, PHP 7.4+  
 **License:** GPL-2.0-or-later  
 
@@ -59,6 +59,11 @@ Abilities Audit only controls **whether the ability is registered** on the site.
 The canonical plugin metadata for WordPress.org is in [`readme.txt`](readme.txt).
 
 ## Changelog
+
+### 0.5.0
+
+- Add contextual **Help** tabs to the admin screen: Overview, Flags reference, and Disabling Abilities guidance.
+- Update translation template (`.pot`) with all current translatable strings.
 
 ### 0.4.0
 

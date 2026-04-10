@@ -4,7 +4,7 @@ Tags: abilities, audit, ai, governance, tools, admin
 Requires at least: 6.9
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.4.0
+Stable tag: 0.5.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,10 @@ After activation, open **Tools > Abilities Audit** in the WordPress admin. You n
 2. Expanded schema row showing Raw Data, annotations, input schema, and output schema.
 
 == Changelog ==
+
+= 0.5.0 =
+* Add contextual Help tabs to the admin screen: Overview, Flags reference, and Disabling Abilities guidance.
+* Update translation template (.pot) with all current translatable strings.
 
 = 0.4.0 =
 * Add a Flags column between Description and Schema: color-graded badges for Read-only, Idempotent, REST, MCP, Destructive, Undeclared (all annotation booleans null), and an Instructions hint when meta includes agent guidance.
