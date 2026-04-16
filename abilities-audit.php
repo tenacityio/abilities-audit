@@ -3,7 +3,7 @@
  * Plugin Name: Abilities Audit
  * Plugin URI:  https://github.com/tenacityio/abilities-audit
  * Description: Audit and governance dashboard for the WordPress Abilities API. View, inspect, and toggle registered abilities from a single admin screen.
- * Version:     0.6.0
+ * Version:     0.6.1
  * Requires at least: 6.9
  * Tested up to: 6.9
  * Requires PHP: 7.4
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ABILITIES_AUDIT_VERSION', '0.6.0' );
+define( 'ABILITIES_AUDIT_VERSION', '0.6.1' );
 
 /**
  * Main plugin class.

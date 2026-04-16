@@ -4,7 +4,7 @@ Tags: abilities, audit, ai, governance, tools, admin
 Requires at least: 6.9
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.6.0
+Stable tag: 0.6.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -48,12 +48,41 @@ Recommendation for integrators: any interface that invokes an ability should als
 
 After activation, open **Tools > Abilities Audit** in the WordPress admin. You need the `manage_options` capability (typically administrators).
 
+== Roadmap ==
+
+We want to hear from you. The items below are things we are considering for future releases—please open an issue on the plugin repository and let us know what you would like us to prioritize.
+
+= WordPress-style pagination =
+
+The current view renders all registered abilities in a single flat list. In a production site that uses the Abilities API heavily—or once more Core, plugin, and theme authors start registering their own abilities—that list could easily grow to hundreds of entries. Future work would add standard WordPress table pagination (first / prev / next / last page links, a “Displaying X–Y of Z” summary, and a per-page screen-option control) so the screen remains fast and scannable regardless of how many abilities are registered.
+
+= WordPress-style search =
+
+A search bar and real-time filtering would let administrators quickly locate a specific ability by name, label, description, namespace, or source component without having to scroll through the full list. The goal is a UX that matches the familiar Posts or Users table search in WordPress core: type to filter, clear to reset, no page reload required.
+
+= WordPress role-based permissions =
+
+Right now the audit screen is restricted to users with the manage_options capability (i.e. site administrators). A role-based permissions layer would let site owners grant finer-grained access—for example allowing editors to view the audit screen without being able to toggle abilities on or off, or delegating toggle rights to a custom role without granting full admin access. This would integrate with the standard WordPress capabilities system and be extensible via map_meta_cap and custom capability filters.
+
+= Namespace, source, and flag-based filtering =
+
+As the number of registered abilities grows, the ability to slice the list by dimension becomes essential. Planned filter controls would let administrators narrow the view by:
+
+* Namespace — show only abilities belonging to a specific namespace slug (e.g. core, my-plugin, woocommerce).
+* Source — quickly isolate abilities registered by Core, a particular Plugin, or the active Theme using the same classification logic already used in the Source column.
+* Flags — filter by one or more annotation badges already displayed in the Flags column: Read-only, Idempotent, REST-exposed, MCP-exposed, Destructive, or abilities that carry an Instructions hint. This makes it straightforward to audit, for example, all abilities flagged as Destructive or all abilities currently exposed over MCP in one view.
+
+Filters would compose—namespace + source + one or more flags—and persist across pagination so the scoped view stays intact while browsing. A Reset filters control would clear all active filters and return to the full list.
+
 == Screenshots ==
 
 1. The Abilities Audit table listing status, name, label, source, description, flags, and schema actions.
 2. Expanded schema row showing Raw Data, annotations, input schema, and output schema.
 
 == Changelog ==
+
+= 0.6.1 =
+* Docs: add Roadmap section (WordPress-style pagination and search, role-based permissions, namespace/source/flag filtering).
 
 = 0.6.0 =
 * Performance: cache get_plugins() and get_mu_plugins() per request in detect_source() to avoid O(abilities × plugins) filesystem scans.
