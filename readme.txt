@@ -4,7 +4,7 @@ Tags: abilities, audit, ai, governance, tools, admin
 Requires at least: 6.9
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.5.1
+Stable tag: 0.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,17 @@ After activation, open **Tools > Abilities Audit** in the WordPress admin. You n
 2. Expanded schema row showing Raw Data, annotations, input schema, and output schema.
 
 == Changelog ==
+
+= 0.6.0 =
+* Performance: cache get_plugins() and get_mu_plugins() per request in detect_source() to avoid O(abilities × plugins) filesystem scans.
+* Refactor: extract flags_kses_allowed_html() so the wp_kses allowlist is shared between render_admin_page() and ajax_toggle() and cannot drift.
+* Refactor: extract build_ability_raw_data() to deduplicate the six-field raw-data array built in both render and AJAX paths; normalises null schema/meta values to arrays.
+* Fix: render_admin_page() last-resort fallback now calls ensure_capture() + abilities_snapshot instead of reading wp_get_abilities() directly, avoiding a potential post-unregister registry read.
+* Fix: provider meta matching is now case-insensitive (ucfirst/strtolower) so 'core', 'CORE', and 'Core' all resolve correctly.
+* Fix: (inactive) plugin label is now a complete translatable string via sprintf(__('%s (inactive)')) instead of an untranslatable appended fragment.
+* Removed manual load_plugin_textdomain() call; WordPress 6.9+ loads translations automatically.
+* Add CORE_NAMESPACES class constant (was a local variable inside detect_source()).
+* Minor: cast printf summary counts as (int); fix alignment in ajax_toggle() disable branch.
 
 = 0.5.1 =
 * Security: escape wp_die() output with esc_html__() in render_admin_page().
