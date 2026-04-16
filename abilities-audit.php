@@ -34,6 +34,9 @@ final class Abilities_Audit {
 	/** Required capability to access the admin page and toggle abilities. */
 	const CAPABILITY = 'manage_options';
 
+	/** Namespace prefixes that identify WordPress core abilities. */
+	const CORE_NAMESPACES = array( 'wordpress', 'wp', 'core' );
+
 	/** @var self|null */
 	private static $instance = null;
 
@@ -51,6 +54,12 @@ final class Abilities_Audit {
 
 	/** @var bool Re-entrance guard for capture_and_filter(). */
 	private $is_capturing = false;
+
+	/** @var array|null Cached result of get_plugins() to avoid repeated filesystem scans. */
+	private $plugins_cache = null;
+
+	/** @var array|null Cached result of get_mu_plugins() to avoid repeated filesystem scans. */
+	private $mu_plugins_cache = null;
 
 	/**
 	 * Get or create the singleton instance.
@@ -88,8 +97,6 @@ final class Abilities_Audit {
 			$this->disabled = array();
 		}
 
-		add_action( 'init', array( $this, 'load_textdomain' ) );
-
 		// Capture all abilities at late priority, then unregister disabled ones.
 		add_action( 'wp_abilities_api_init', array( $this, 'capture_and_filter' ), 999 );
 
@@ -103,13 +110,6 @@ final class Abilities_Audit {
 
 		// AJAX handler for toggling.
 		add_action( 'wp_ajax_abilities_audit_toggle', array( $this, 'ajax_toggle' ) );
-	}
-
-	/**
-	 * Load plugin text domain.
-	 */
-	public function load_textdomain() {
-		load_plugin_textdomain( 'abilities-audit', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
 	}
 
 	/**
@@ -149,6 +149,8 @@ final class Abilities_Audit {
 					'error'            => __( 'Error', 'abilities-audit' ),
 					'on'               => __( 'On', 'abilities-audit' ),
 					'off'              => __( 'Off', 'abilities-audit' ),
+					// These mirror the aria-label strings rendered inline by render_admin_page()
+					// for the initial page state; both sets must stay in sync.
 					'enableAria'       => __( 'Enable %s', 'abilities-audit' ),
 					'disableAria'      => __( 'Disable %s', 'abilities-audit' ),
 					'schemaAnnotations' => __( 'Annotations', 'abilities-audit' ),
@@ -232,6 +234,81 @@ final class Abilities_Audit {
 	}
 
 	// ------------------------------------------------------------------
+	//  Private helpers
+	// ------------------------------------------------------------------
+
+	/**
+	 * Return the wp_kses allowlist used for the Flags column HTML.
+	 *
+	 * Centralised here so the render path and AJAX path cannot drift.
+	 *
+	 * @return array<string,array<string,bool>>
+	 */
+	private function flags_kses_allowed_html() {
+		return array(
+			'div'  => array( 'class' => true ),
+			'span' => array(
+				'class' => true,
+				'title' => true,
+			),
+		);
+	}
+
+	/**
+	 * Build the raw-data array for a registered ability.
+	 *
+	 * Normalises schema/meta return values to arrays so callers do not need
+	 * individual null-checks.
+	 *
+	 * @param  string      $name        Ability name.
+	 * @param  \WP_Ability $ability_obj Registered ability object.
+	 * @return array<string,mixed>
+	 */
+	private function build_ability_raw_data( $name, \WP_Ability $ability_obj ) {
+		$input_schema  = $ability_obj->get_input_schema();
+		$output_schema = $ability_obj->get_output_schema();
+		$meta          = $ability_obj->get_meta();
+		return array(
+			'name'          => $name,
+			'label'         => $ability_obj->get_label(),
+			'description'   => $ability_obj->get_description(),
+			'input_schema'  => is_array( $input_schema ) ? $input_schema : array(),
+			'output_schema' => is_array( $output_schema ) ? $output_schema : array(),
+			'meta'          => is_array( $meta ) ? $meta : array(),
+		);
+	}
+
+	/**
+	 * Return all installed plugins, caching the result for the request lifetime.
+	 *
+	 * Avoids repeated filesystem scans when detect_source() is called once per
+	 * ability in the audit table.
+	 *
+	 * @return array<string,array<string,mixed>>
+	 */
+	private function get_all_plugins() {
+		if ( null === $this->plugins_cache ) {
+			if ( ! function_exists( 'get_plugins' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/plugin.php';
+			}
+			$this->plugins_cache = get_plugins();
+		}
+		return $this->plugins_cache;
+	}
+
+	/**
+	 * Return all must-use plugins, caching the result for the request lifetime.
+	 *
+	 * @return array<string,array<string,mixed>>
+	 */
+	private function get_all_mu_plugins() {
+		if ( null === $this->mu_plugins_cache ) {
+			$this->mu_plugins_cache = function_exists( 'get_mu_plugins' ) ? get_mu_plugins() : array();
+		}
+		return $this->mu_plugins_cache;
+	}
+
+	// ------------------------------------------------------------------
 	//  Source detection
 	// ------------------------------------------------------------------
 
@@ -252,7 +329,6 @@ final class Abilities_Audit {
 	private function detect_source( $ability_name, $meta = array() ) {
 		$parts     = explode( '/', $ability_name, 2 );
 		$namespace = $parts[0];
-		$core_namespaces = array( 'wordpress', 'wp', 'core' );
 
 		/*
 		 * Try to resolve a human-friendly component name for the namespace.
@@ -265,11 +341,7 @@ final class Abilities_Audit {
 		$resolved_component = null;
 
 		// Active/inactive plugins (best-effort slug match).
-		if ( ! function_exists( 'get_plugins' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/plugin.php';
-		}
-		$plugins = get_plugins();
-		foreach ( $plugins as $plugin_file => $plugin_data ) {
+		foreach ( $this->get_all_plugins() as $plugin_file => $plugin_data ) {
 			$slug = dirname( $plugin_file );
 			if ( '.' === $slug ) {
 				$slug = basename( $plugin_file, '.php' );
@@ -281,7 +353,10 @@ final class Abilities_Audit {
 			$active = function_exists( 'is_plugin_active' ) ? is_plugin_active( $plugin_file ) : true;
 			$resolved_component = array(
 				'type'  => 'plugin',
-				'label' => $plugin_data['Name'] . ( $active ? '' : ' ' . __( '(inactive)', 'abilities-audit' ) ),
+				/* translators: %s: plugin name */
+				'label' => $active
+					? $plugin_data['Name']
+					: sprintf( __( '%s (inactive)', 'abilities-audit' ), $plugin_data['Name'] ),
 			);
 			break;
 		}
@@ -296,9 +371,8 @@ final class Abilities_Audit {
 		}
 
 		// Must-use plugins (best-effort basename match).
-		if ( null === $resolved_component && function_exists( 'get_mu_plugins' ) ) {
-			$mu_plugins = get_mu_plugins();
-			foreach ( $mu_plugins as $mu_file => $mu_data ) {
+		if ( null === $resolved_component ) {
+			foreach ( $this->get_all_mu_plugins() as $mu_file => $mu_data ) {
 				$slug = basename( $mu_file, '.php' );
 				if ( $slug !== $namespace ) {
 					continue;
@@ -313,12 +387,13 @@ final class Abilities_Audit {
 		}
 
 		// Meta override (if provided by the ability).
+		// Provider values are normalised to title-case so 'core', 'CORE', and 'Core' all match.
 		if ( is_array( $meta ) && isset( $meta['provider'] ) ) {
-			$provider = (string) $meta['provider'];
+			$provider = ucfirst( strtolower( (string) $meta['provider'] ) );
 			if ( 'Core' === $provider ) {
 				return array(
 					'type'  => 'core',
-					'label' => in_array( $namespace, $core_namespaces, true )
+					'label' => in_array( $namespace, self::CORE_NAMESPACES, true )
 						? __( 'Core', 'abilities-audit' )
 						: sprintf( __( 'Core (%s)', 'abilities-audit' ), $namespace ),
 				);
@@ -348,7 +423,7 @@ final class Abilities_Audit {
 		}
 
 		// WordPress core abilities (namespace/ability format).
-		if ( in_array( $namespace, $core_namespaces, true ) ) {
+		if ( in_array( $namespace, self::CORE_NAMESPACES, true ) ) {
 			return array(
 				'type'  => 'core',
 				'label' => __( 'Core', 'abilities-audit' ),
@@ -532,13 +607,11 @@ final class Abilities_Audit {
 		}
 
 		// Last-resort fallback: snapshot still empty at render time (e.g. very early page load).
-		if ( empty( $abilities ) && function_exists( 'wp_get_abilities' ) ) {
-			$registry = wp_get_abilities();
-			if ( is_array( $registry ) ) {
-				foreach ( $registry as $name => $ability ) {
-					$abilities[ $name ] = $ability;
-				}
-			}
+		// Use ensure_capture() so the snapshot is populated consistently (with unregistrations
+		// applied) rather than reading the live registry directly after potential lazy-init.
+		if ( empty( $abilities ) ) {
+			$this->ensure_capture();
+			$abilities = $this->abilities_snapshot;
 		}
 
 		// Ensure disabled-but-unregistered abilities still appear (orphans after edge cases).
@@ -584,27 +657,16 @@ final class Abilities_Audit {
 					<tbody>
 						<?php foreach ( $abilities as $name => $ability_obj ) :
 							$is_disabled = in_array( $name, $disabled, true );
-							$meta        = $ability_obj instanceof \WP_Ability ? $ability_obj->get_meta() : array();
-							if ( ! is_array( $meta ) ) {
-								$meta = array();
-							}
-							$source = $this->detect_source( $name, $meta );
 							if ( $ability_obj instanceof \WP_Ability ) {
-								$label       = $ability_obj->get_label();
-								$description = $ability_obj->get_description();
-
-								$input_schema  = $ability_obj->get_input_schema();
-								$output_schema = $ability_obj->get_output_schema();
+								$raw_data      = $this->build_ability_raw_data( $name, $ability_obj );
+								$meta          = $raw_data['meta'];
+								$label         = $raw_data['label'];
+								$description   = $raw_data['description'];
+								$input_schema  = $raw_data['input_schema'];
+								$output_schema = $raw_data['output_schema'];
 								$annotations   = method_exists( $ability_obj, 'get_annotations' ) ? $ability_obj->get_annotations() : array();
-								$raw_data      = array(
-									'name'          => $name,
-									'label'         => $label,
-									'description'   => $description,
-									'input_schema'  => $input_schema,
-									'output_schema' => $output_schema,
-									'meta'          => $meta,
-								);
 							} else {
+								$meta        = array();
 								$label       = $name;
 								$description = __( 'This ability is disabled and not registered in this request. Turn it on to restore it.', 'abilities-audit' );
 								$input_schema  = array();
@@ -613,6 +675,7 @@ final class Abilities_Audit {
 								$raw_data      = array();
 							}
 
+							$source             = $this->detect_source( $name, $meta );
 							$source_badge_class = 'abilities-audit-badge abilities-audit-badge--' . esc_attr( $source['type'] );
 							?>
 							<tr class="<?php echo $is_disabled ? 'abilities-audit-row--disabled' : ''; ?>">
@@ -650,13 +713,7 @@ final class Abilities_Audit {
 									if ( $ability_obj instanceof \WP_Ability ) {
 										echo wp_kses(
 											$this->render_ability_flags_html( $meta ),
-											array(
-												'div'  => array( 'class' => true ),
-												'span' => array(
-													'class' => true,
-													'title' => true,
-												),
-											)
+											$this->flags_kses_allowed_html()
 										);
 									} else {
 										echo '<span class="description">&mdash;</span>';
@@ -727,9 +784,9 @@ final class Abilities_Audit {
 								printf(
 									/* translators: 1: total count, 2: enabled count, 3: disabled count */
 									esc_html__( '%1$d abilities registered. %2$d enabled, %3$d disabled.', 'abilities-audit' ),
-									$total,
-									$on,
-									$off
+									(int) $total,
+									(int) $on,
+									(int) $off
 								);
 								?>
 							</th>
@@ -775,8 +832,8 @@ final class Abilities_Audit {
 		} else {
 			// Disable: add to disabled list.
 			$disabled[] = $ability;
-			$disabled     = array_values( array_unique( $disabled ) );
-			$new_state    = 'disabled';
+			$disabled   = array_values( array_unique( $disabled ) );
+			$new_state  = 'disabled';
 		}
 
 		update_option( self::OPTION_DISABLED, $disabled, true );
@@ -797,32 +854,15 @@ final class Abilities_Audit {
 		}
 
 		if ( $ability_obj instanceof \WP_Ability ) {
-			$description   = $ability_obj->get_description();
-			$input_schema  = $ability_obj->get_input_schema();
-			$output_schema = $ability_obj->get_output_schema();
+			$raw_data      = $this->build_ability_raw_data( $ability, $ability_obj );
+			$description   = $raw_data['description'];
+			$input_schema  = $raw_data['input_schema'];
+			$output_schema = $raw_data['output_schema'];
+			$meta          = $raw_data['meta'];
 			$annotations   = method_exists( $ability_obj, 'get_annotations' ) ? $ability_obj->get_annotations() : array();
-			if ( ! is_array( $input_schema ) ) {
-				$input_schema = array();
-			}
-			if ( ! is_array( $output_schema ) ) {
-				$output_schema = array();
-			}
 			if ( ! is_array( $annotations ) ) {
 				$annotations = array();
 			}
-			$meta = $ability_obj->get_meta();
-			if ( ! is_array( $meta ) ) {
-				$meta = array();
-			}
-			$label    = $ability_obj->get_label();
-			$raw_data = array(
-				'name'          => $ability,
-				'label'         => $label,
-				'description'   => $description,
-				'input_schema'  => $input_schema,
-				'output_schema' => $output_schema,
-				'meta'          => $meta,
-			);
 		} elseif ( 'disabled' === $new_state ) {
 			$description = __( 'This ability is disabled and not registered in this request. Turn it on to restore it.', 'abilities-audit' );
 		}
@@ -833,13 +873,7 @@ final class Abilities_Audit {
 		if ( $ability_obj instanceof \WP_Ability ) {
 			$flags_html = wp_kses(
 				$this->render_ability_flags_html( $meta ),
-				array(
-					'div'  => array( 'class' => true ),
-					'span' => array(
-						'class' => true,
-						'title' => true,
-					),
-				)
+				$this->flags_kses_allowed_html()
 			);
 		}
 
