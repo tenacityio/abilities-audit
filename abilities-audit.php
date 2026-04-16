@@ -3,7 +3,7 @@
  * Plugin Name: Abilities Audit
  * Plugin URI:  https://github.com/tenacityio/abilities-audit
  * Description: Audit and governance dashboard for the WordPress Abilities API. View, inspect, and toggle registered abilities from a single admin screen.
- * Version:     0.5.0
+ * Version:     0.5.1
  * Requires at least: 6.9
  * Tested up to: 6.9
  * Requires PHP: 7.4
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ABILITIES_AUDIT_VERSION', '0.5.0' );
+define( 'ABILITIES_AUDIT_VERSION', '0.5.1' );
 
 /**
  * Main plugin class.
@@ -522,7 +522,7 @@ final class Abilities_Audit {
 	 */
 	public function render_admin_page() {
 		if ( ! current_user_can( self::CAPABILITY ) ) {
-			wp_die( __( 'You do not have permission to access this page.', 'abilities-audit' ) );
+			wp_die( esc_html__( 'You do not have permission to access this page.', 'abilities-audit' ) );
 		}
 
 		$abilities = $this->abilities_snapshot;
@@ -676,21 +676,12 @@ final class Abilities_Audit {
 							<?php if ( ! empty( $input_schema ) || ! empty( $output_schema ) || ! empty( $annotations ) || ! empty( $raw_data ) ) : ?>
 								<tr class="abilities-audit-schema-row" id="schema-<?php echo esc_attr( sanitize_title( $name ) ); ?>" style="display:none;">
 									<td colspan="7" style="padding:12px 20px;background:#f9f9f9;">
-										<?php
-										// Abilities Explorer raw_data shape; built from row vars (always output in this row).
-										$raw_for_display = array(
-											'name'          => $name,
-											'label'         => $label,
-											'description'   => $description,
-											'input_schema'  => $input_schema,
-											'output_schema' => $output_schema,
-											'meta'          => $meta,
-										);
-										$raw_json = wp_json_encode( $raw_for_display, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
-										if ( false === $raw_json ) {
-											$raw_json = '{}';
-										}
-										?>
+									<?php
+									$raw_json = wp_json_encode( $raw_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+									if ( false === $raw_json ) {
+										$raw_json = '{}';
+									}
+									?>
 										<div class="abilities-audit-schema-section abilities-audit-schema-section--raw">
 											<strong><?php esc_html_e( 'Raw Data', 'abilities-audit' ); ?></strong>
 											<pre style="margin:4px 0 12px;white-space:pre-wrap;"><?php echo esc_html( $raw_json ); ?></pre>
@@ -840,11 +831,16 @@ final class Abilities_Audit {
 
 		$flags_html = '<span class="description">&mdash;</span>';
 		if ( $ability_obj instanceof \WP_Ability ) {
-			$meta_for_flags = $ability_obj->get_meta();
-			if ( ! is_array( $meta_for_flags ) ) {
-				$meta_for_flags = array();
-			}
-			$flags_html = $this->render_ability_flags_html( $meta_for_flags );
+			$flags_html = wp_kses(
+				$this->render_ability_flags_html( $meta ),
+				array(
+					'div'  => array( 'class' => true ),
+					'span' => array(
+						'class' => true,
+						'title' => true,
+					),
+				)
+			);
 		}
 
 		wp_send_json_success(

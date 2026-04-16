@@ -4,7 +4,7 @@ Tags: abilities, audit, ai, governance, tools, admin
 Requires at least: 6.9
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.5.0
+Stable tag: 0.5.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,12 @@ After activation, open **Tools > Abilities Audit** in the WordPress admin. You n
 2. Expanded schema row showing Raw Data, annotations, input schema, and output schema.
 
 == Changelog ==
+
+= 0.5.1 =
+* Security: escape wp_die() output with esc_html__() in render_admin_page().
+* Security: apply wp_kses() to flags HTML before sending via AJAX response, consistent with the page-render path.
+* Refactor: remove redundant $raw_for_display array rebuild in schema detail row; use existing $raw_data directly.
+* Refactor: remove redundant get_meta() call and is_array guard ($meta_for_flags) in ajax_toggle(); reuse $meta.
 
 = 0.5.0 =
 * Add contextual Help tabs to the admin screen: Overview, Flags reference, and Disabling Abilities guidance.
