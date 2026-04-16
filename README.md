@@ -2,7 +2,7 @@
 
 Audit and govern registered [WordPress Abilities API](https://make.wordpress.org/core/) abilities from a single **Tools** screen.
 
-**Version:** 0.5.1 (beta)  
+**Version:** 0.6.0 (beta)  
 **Requires:** WordPress 6.9+, PHP 7.4+  
 **License:** GPL-2.0-or-later  
 
@@ -59,6 +59,18 @@ Abilities Audit only controls **whether the ability is registered** on the site.
 The canonical plugin metadata for WordPress.org is in [`readme.txt`](readme.txt).
 
 ## Changelog
+
+### 0.6.0
+
+- Performance: cache `get_plugins()` and `get_mu_plugins()` per request in `detect_source()` to avoid O(abilities × plugins) filesystem scans on every page render.
+- Refactor: extract `flags_kses_allowed_html()` so the `wp_kses` allowlist is shared between `render_admin_page()` and `ajax_toggle()` and cannot drift between the two paths.
+- Refactor: extract `build_ability_raw_data()` to deduplicate the six-field raw-data array built in both render and AJAX paths; normalises `null` schema/meta returns to `[]`.
+- Fix: `render_admin_page()` last-resort fallback now calls `ensure_capture()` + `abilities_snapshot` instead of reading `wp_get_abilities()` directly, avoiding a potential post-unregister registry read.
+- Fix: provider meta matching is now case-insensitive (`ucfirst`/`strtolower`) so `'core'`, `'CORE'`, and `'Core'` all resolve correctly.
+- Fix: `(inactive)` plugin label is now a complete translatable string via `sprintf(__('%s (inactive)'))` instead of an untranslatable appended fragment.
+- Removed manual `load_plugin_textdomain()` call; WordPress 6.9+ (required) loads translations automatically.
+- Add `CORE_NAMESPACES` class constant (was a local variable inside `detect_source()`).
+- Minor: cast `printf` summary counts as `(int)`; fix alignment in `ajax_toggle()` disable branch.
 
 ### 0.5.1
 
